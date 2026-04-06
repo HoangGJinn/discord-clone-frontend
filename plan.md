@@ -1,65 +1,65 @@
-# Kế hoạch phát triển Flutter 7 Ngày (Dev 2: Chat, Social & Real-time)
+# Kế hoạch phát triển Frontend (Dev 2: Customer & Admin) - 10 NGÀY TỔNG LỰC
 
-Tài liệu này được nén lại để hoàn thành các nhiệm vụ quan trọng trong vòng **7 ngày**. Bạn là **Dev 2**, tập trung vào Chat, Bạn bè, Profile và Voice Chat.
-
----
-
-## 1. Kiểm tra Backend
-✅ **Trạng thái**: Backend đã hoàn thiện cơ bản các Controller cần thiết cho bạn:
-- `FriendController`: Quản lý bạn bè.
-- `MessageController` & `ChatController`: Chat trong channel.
-- `DirectMessageController`: Chat 1-1.
-- `VoiceController`: Token cho Agora Voice.
-- `UserController`: Profile và Status.
-- `SearchController`: Tìm kiếm.
-- `FileUploadController`: Upload ảnh icon/avatar.
+Tài liệu này bao gồm lộ trình **10 ngày dồn dập**: **5 ngày đầu (React Native - Customer)** và **5 ngày sau (Flutter - Admin)**.
 
 ---
 
-## 2. Roadmap 7 Ngày Cấp Tốc (High Intensity)
+## GIAI ĐOẠN 1: CUSTOMER APP (5 NGÀY - REACT NATIVE)
 
-### Ngày 1: Hạ tầng & Hệ thống Bạn bè
-- [ ] **Infrastructure**: Setup `Dio` (với interceptors lưu trữ JWT), `Stomp` client (WebSocket), và `GoRouter`.
-- [ ] **Friend List**: Màn hình danh sách bạn bè với 3 tab (Tất cả, Chờ, Đã gửi).
-- [ ] **Social Actions**: Gửi lời mời kết bạn, Chấp nhận/Từ chối.
+### Ngày 1: Hạ tầng & Xã hội (Infrastructure & Friends)
+- [ ] **Infrastructure**: Cấu hình Axios (Bearer token), StompJS (WebSocket), Zustand.
+- [ ] **Friend System**: Màn hình danh sách bạn bè (Tất cả, Chờ, Đã gửi).
+- [ ] **Social Actions**: Gửi/Hủy/Chấp nhận lời mời kết bạn (API: `FriendController`).
+- [ ] **Profile Basic**: Màn hình xem thông tin cá nhân.
 
-### Ngày 2: Direct Message (DM) & Real-time
-- [ ] **DM List**: Hiển thị danh sách các cuộc hội thoại 1-1 gần nhất.
-- [ ] **DM Chat UI**: Màn hình chat riêng tư.
-- [ ] **Real-time**: Lắng nghe tin nhắn DM qua WebSocket để hiển thị ngay lập tức (Topic: `/user/queue/dm`).
+### Ngày 2: Chat 1-1 & Real-time (DM & WebSocket)
+- [ ] **DM List**: Hiển thị danh sách hội thoại DM gần nhất.
+- [ ] **DMChatScreen**: Màn hình chat text riêng tư.
+- [ ] **Real-time**: Lắng nghe tin nhắn tức thời qua WebSocket (`/user/queue/dm`).
 
-### Ngày 3: Chat Channel (Phần quan trọng nhất)
-- [ ] **Chat Screen**: Layout danh sách tin nhắn (hiển thị Avatar, Username, Time).
-- [ ] **Infinite Scroll**: Tự động load tin nhắn cũ khi kéo lên trên.
-- [ ] **Message Input**: Gửi tin nhắn text và Emoji.
+### Ngày 3: Chat Channel & Hiệu năng (Channel Chat)
+- [ ] **Channel Chat UI**: Layout danh sách tin nhắn chuyên nghiệp.
+- [ ] **Infinite Scroll**: Load thêm tin nhắn cũ khi kéo lên trên.
+- [ ] **Message Input**: Gửi nhanh tin nhắn text & Emoji.
 
-### Ngày 4: Tin nhắn nâng cao & Profile
-- [ ] **Message Actions**: Nhấn giữ tin nhắn để Sửa, Xóa, Pin hoặc thả Reactions.
-- [ ] **Profile Screen**: Chỉnh sửa tên, Bio, ngày sinh.
-- [ ] **Status Selector**: Toggle trạng thái Trực tuyến, Chờ, Đừng làm phiền (API: `/api/users/me/status`).
+### Ngày 4: Tin nhắn nâng cao & Media (Rich Chat & Search)
+- [ ] **Reactions & Media**: UI thả emoji, gửi ảnh qua API `/api/upload`.
+- [ ] **Message Actions**: Ghim, sửa, xóa tin nhắn.
+- [ ] **Global Search**: Tìm kiếm nhanh Server, Channel, Người dùng.
 
-### Ngày 5: Media & Tìm kiếm
-- [ ] **File Upload**: Tích hợp `image_picker` và API `/api/upload` để gửi ảnh trong chat/đổi avatar.
-- [ ] **Global Search**: Màn hình tìm kiếm server, channel và người dùng.
-- [ ] **Rich Preview**: Hiển thị ảnh và link đính kèm trong chat.
-
-### Ngày 6: Voice Chat (Agora SDK)
-- [ ] **Voice Setup**: Cài đặt `agora_rtc_engine`, lấy token từ API `/api/voice/token`.
-- [ ] **Voice UI**: Hiển thị danh sách người đang trong kênh voice, indicator khi có người đang nói.
-- [ ] **Voice Controls**: Mute, Deafen, và Rời kênh.
-
-### Ngày 7: Tích hợp & Hoàn thiện
-- [ ] **Integration**: Kết nối với phần Login và Server List của Dev 1.
-- [ ] **Bug Fixing**: Kiểm tra tính ổn định của WebSocket khi mất mạng.
-- [ ] **Polishing**: Thêm các animation chuyển cảnh, Skeleton loading để app trông chuyên nghiệp hơn.
+### Ngày 5: Voice Chat & Hoàn thiện Customer (Voice & Polish)
+- [ ] **Voice Call**: Tích hợp Agora SDK (Join/Leave, Mute/Deafen).
+- [ ] **Presence**: Toggle trạng thái Trực tuyến/Chờ/Đừng làm phiền.
+- [ ] **Integration**: Ghép nối với Login/Server của Dev 1 và Build test bản mobile.
 
 ---
 
-## 3. Checklist Kỹ thuật 7 Ngày
-- [ ] Token JWT phải được lưu vào `flutter_secure_storage`.
-- [ ] Sử dụng `BLoC` để quản lý luồng tin nhắn (ChatBloc, DMBloc).
-- [ ] Mọi hình ảnh nên được bọc trong `CachedNetworkImage`.
-- [ ] WebSocket nên có logic tự động kết nối lại (Auto-reconnect).
+## GIAI ĐOẠN 2: ADMIN PANEL (5 NGÀY - FLUTTER)
+
+### Ngày 6: Hạ tầng Flutter & Dashboard (Admin Shell)
+- [ ] **Flutter Setup**: Khởi tạo project Flutter Admin mới.
+- [ ] **Admin Login**: Màn hình đăng nhập dành riêng cho ROLE_ADMIN.
+- [ ] **Dashboard Shell**: Các thẻ thống kê nhanh (Tổng User, Server, Doanh thu).
+
+### Ngày 7: Quản lý Nội dung (Content Moderation)
+- [ ] **Reported Messages**: Danh sách tin nhắn bị cộng đồng báo cáo.
+- [ ] **Moderation Actions**: Nút Xóa tin nhắn, Cảnh cáo hoặc Ban người dùng vi phạm.
+- [ ] **Auto-mod UI**: Thiết lập danh sách từ khóa bị chặn (Blacklist).
+
+### Ngày 8: Phân tích Số liệu (Analytics Dashboard)
+- [ ] **User Charts**: Biểu đồ tăng trưởng người dùng và sự Retention (Lưu giữ).
+- [ ] **Server Charts**: Thống kê Server lớn mạnh nhất và engagement hàng ngày.
+- [ ] **API Stats**: `GET /api/admin/stats/overview`.
+
+### Ngày 9: Quản lý Nitro & Doanh thu (Nitro & Payment)
+- [ ] **Nitro Order List**: Danh sách các đơn hàng nạp Nitro từ người dùng.
+- [ ] **Revenue Reports**: Biểu đồ doanh thu theo tuần/tháng (Xác nhận từ VNPay).
+- [ ] **API**: `GET /api/payment/admin/orders`.
+
+### Ngày 10: Nhật ký & Đóng gói Admin (Audit Logs & Build)
+- [ ] **Audit Log**: Hiển thị lịch sử các hành động của Admin đã thực hiện.
+- [ ] **Final Polish**: Tinh chỉnh UI bảng biểu Admin cho chuyên nghiệp.
+- [ ] **Build**: Xuất bản Web/APK cho phần Admin.
 
 ---
-> **Lưu ý**: Lộ trình này yêu cầu bạn tập trung cao độ. Hãy chia nhỏ thời gian sáng làm giao diện (UI), chiều tích hợp API và tối xử lý WebSocket/Real-time. Chúc bạn thành công!
+> **Lưu ý cực quan trọng**: 10 ngày cho 2 công nghệ khác nhau là thử thách rất lớn. Hãy ưu tiên làm logic (API) trước, phần UI "đẹp" có thể tinh chỉnh sau cùng nếu còn thời gian. Quyết thắng!
