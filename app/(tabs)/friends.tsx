@@ -43,7 +43,7 @@ export default function FriendsScreen() {
     loadData();
   }, [activeTab]);
 
-  const renderFriendItem = ({ item }: { item: any }) => {
+  const renderFriendItem = ({ item, index }: { item: any, index: number }) => {
     const username = item.username || item.friend?.username;
     const avatar = item.avatar || item.friend?.avatar;
 
@@ -57,6 +57,7 @@ export default function FriendsScreen() {
         onAccept={() => acceptFriendRequest(item.id)}
         onReject={() => rejectFriendRequest(item.id)}
         onCancel={() => cancelFriendRequest(item.id)}
+        index={index}
       />
     );
   };

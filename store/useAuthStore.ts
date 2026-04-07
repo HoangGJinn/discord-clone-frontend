@@ -9,6 +9,10 @@ export interface User {
   displayName?: string;
   status?: string;
   role: string[];
+  bio?: string;
+  birthDate?: string;
+  country?: string;
+  pronouns?: string;
 }
 
 interface AuthState {

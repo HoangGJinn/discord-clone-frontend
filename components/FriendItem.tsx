@@ -1,8 +1,10 @@
 import React from "react";
-import { StyleSheet, TouchableOpacity, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import Animated, { FadeInDown } from "react-native-reanimated";
 import { Avatar } from "./Avatar";
 import { ThemedText } from "./themed-text";
 import { DiscordColors, Spacing } from "@/constants/theme";
+import { DiscordButton } from "./DiscordButton";
 
 export interface FriendItemProps {
   id: string;
@@ -13,6 +15,7 @@ export interface FriendItemProps {
   onAccept?: () => void;
   onReject?: () => void;
   onCancel?: () => void;
+  index?: number;
 }
 
 export const FriendItem: React.FC<FriendItemProps> = ({
@@ -23,10 +26,14 @@ export const FriendItem: React.FC<FriendItemProps> = ({
   onAccept,
   onReject,
   onCancel,
+  index = 0,
 }) => {
   return (
-    <View style={styles.listItem}>
-      <Avatar name={username} uri={avatar} status="ONLINE" size={42} />
+    <Animated.View 
+      entering={FadeInDown.delay(index * 50).springify()}
+      style={styles.listItem}
+    >
+      <Avatar name={username} uri={avatar} status="ONLINE" size={44} />
       <View style={styles.itemContent}>
         <ThemedText style={styles.usernameText}>
           {username}
@@ -38,30 +45,30 @@ export const FriendItem: React.FC<FriendItemProps> = ({
 
       {type === "PENDING" && (
         <View style={styles.actionButtons}>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.acceptButton]}
-            onPress={onAccept}
-          >
-            <ThemedText style={styles.buttonText}>Accept</ThemedText>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.rejectButton]}
-            onPress={onReject}
-          >
-            <ThemedText style={styles.buttonText}>Reject</ThemedText>
-          </TouchableOpacity>
+          <DiscordButton 
+            title="Accept" 
+            variant="success" 
+            size="sm" 
+            onPress={onAccept} 
+          />
+          <DiscordButton 
+            title="Reject" 
+            variant="danger" 
+            size="sm" 
+            onPress={onReject} 
+          />
         </View>
       )}
 
       {type === "SENT" && (
-        <TouchableOpacity
-          style={[styles.actionButton, styles.rejectButton]}
-          onPress={onCancel}
-        >
-          <ThemedText style={styles.buttonText}>Cancel</ThemedText>
-        </TouchableOpacity>
+        <DiscordButton 
+          title="Cancel" 
+          variant="danger" 
+          size="sm" 
+          onPress={onCancel} 
+        />
       )}
-    </View>
+    </Animated.View>
   );
 };
 
@@ -79,7 +86,7 @@ const styles = StyleSheet.create({
   },
   usernameText: {
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: "700",
     color: DiscordColors.textPrimary,
   },
   statusText: {
@@ -89,23 +96,6 @@ const styles = StyleSheet.create({
   },
   actionButtons: {
     flexDirection: "row",
-    gap: 12,
-  },
-  actionButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 6,
-    justifyContent: "center",
-  },
-  acceptButton: {
-    backgroundColor: DiscordColors.green,
-  },
-  rejectButton: {
-    backgroundColor: DiscordColors.red,
-  },
-  buttonText: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "600",
+    gap: 8,
   },
 });
