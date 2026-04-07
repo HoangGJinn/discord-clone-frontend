@@ -1,6 +1,5 @@
 import { FriendItem } from "@/components/FriendItem";
 import { ThemedText } from "@/components/themed-text";
-import { ThemedView } from "@/components/themed-view";
 import { useFriendStore } from "@/store/useFriendStore";
 import React, { useEffect, useState } from "react";
 import {
@@ -10,6 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { DiscordColors, Spacing } from "@/constants/theme";
 
 type TabType = "ALL" | "PENDING" | "SENT";
 
@@ -68,15 +68,15 @@ export default function FriendsScreen() {
   };
 
   return (
-    <ThemedView style={styles.container}>
-      <ThemedView style={styles.header}>
-        <ThemedText type="title">Friends</ThemedText>
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <ThemedText style={styles.headerTitle}>Friends</ThemedText>
         <TouchableOpacity style={styles.addFriendBtn}>
-          <ThemedText type="defaultSemiBold" style={{ color: "#fff" }}>
+          <ThemedText style={{ color: "#fff", fontWeight: '600' }}>
             Add Friend
           </ThemedText>
         </TouchableOpacity>
-      </ThemedView>
+      </View>
 
       <View style={styles.tabBar}>
         {TABS.map((tab) => (
@@ -102,105 +102,78 @@ export default function FriendsScreen() {
         renderItem={renderFriendItem}
         keyExtractor={(item) => item.id || item.username}
         refreshControl={
-          <RefreshControl refreshing={isLoading} onRefresh={loadData} />
+          <RefreshControl 
+            refreshing={isLoading} 
+            onRefresh={loadData} 
+            tintColor={DiscordColors.blurple}
+          />
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <ThemedText>None here yet.</ThemedText>
+            <ThemedText style={styles.emptyText}>None here yet.</ThemedText>
           </View>
         }
         contentContainerStyle={{ paddingBottom: 20 }}
       />
-    </ThemedView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 60,
+    backgroundColor: DiscordColors.primaryBackground,
+    paddingTop: 50,
   },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 20,
-    marginBottom: 20,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: DiscordColors.textPrimary,
   },
   addFriendBtn: {
-    backgroundColor: "#5865F2",
-    paddingHorizontal: 15,
+    backgroundColor: DiscordColors.green,
+    paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 5,
+    borderRadius: 4,
   },
   tabBar: {
     flexDirection: "row",
-    borderBottomWidth: 1,
-    borderBottomColor: "#ccc",
-    paddingHorizontal: 10,
-    marginBottom: 10,
+    paddingHorizontal: Spacing.md,
+    marginBottom: Spacing.sm,
+    gap: 8,
   },
   tabItem: {
-    paddingVertical: 10,
-    paddingHorizontal: 15,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 6,
   },
   activeTab: {
-    borderBottomWidth: 2,
-    borderBottomColor: "#5865F2",
+    backgroundColor: "rgba(78, 80, 88, 0.6)",
   },
   tabLabel: {
     fontSize: 16,
-    color: "#888",
+    color: DiscordColors.textSecondary,
+    fontWeight: "500",
   },
   activeTabLabel: {
-    color: "#5865F2",
-    fontWeight: "bold",
-  },
-  listItem: {
-    flexDirection: "row",
-    padding: 15,
-    alignItems: "center",
-    borderBottomWidth: 0.5,
-    borderBottomColor: "#eee",
-  },
-  avatarPlaceholder: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#ccc",
-    marginRight: 15,
-  },
-  itemContent: {
-    flex: 1,
-  },
-  statusText: {
-    fontSize: 12,
-    color: "#888",
-  },
-  actionButtons: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  actionButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 4,
-  },
-  acceptButton: {
-    backgroundColor: "#3BA55D",
-  },
-  rejectButton: {
-    backgroundColor: "#ED4245",
-  },
-  buttonText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "bold",
+    color: "#ffffff",
+    fontWeight: "700",
   },
   emptyContainer: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 50,
+    marginTop: 100,
+  },
+  emptyText: {
+    color: DiscordColors.textMuted,
+    fontSize: 16,
   },
 });

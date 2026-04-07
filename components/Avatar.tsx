@@ -2,6 +2,7 @@ import React from 'react';
 import { View, StyleSheet, ViewStyle } from 'react-native';
 import { Image } from 'expo-image';
 import { ThemedText } from './themed-text';
+import { DiscordColors } from '@/constants/theme';
 
 interface AvatarProps {
   uri?: string;
@@ -12,24 +13,25 @@ interface AvatarProps {
 }
 
 const statusColors = {
-  ONLINE: '#3BA55D',
-  IDLE: '#FAA81A',
-  DND: '#ED4245',
+  ONLINE: DiscordColors.green,
+  IDLE: DiscordColors.yellow,
+  DND: DiscordColors.red,
   OFFLINE: '#747F8D',
 };
 
 export const Avatar: React.FC<AvatarProps> = ({ uri, name, size = 40, status, style }) => {
   const initials = name.charAt(0).toUpperCase();
-  const indicatorSize = size / 3.5;
+  const indicatorSize = size / 3.2;
+  const indicatorBorderSize = size / 12;
 
   return (
     <View style={[styles.container, { width: size, height: size }, style]}>
-      <View style={[styles.avatarBorder, { borderRadius: size / 2 }]}>
+      <View style={[styles.avatarBorder, { borderRadius: size / 2.2 }]}>
         {uri ? (
-          <Image source={{ uri }} style={[styles.image, { width: size, height: size, borderRadius: size / 2 }]} />
+          <Image source={{ uri }} style={[styles.image, { width: size, height: size, borderRadius: size / 2.2 }]} />
         ) : (
-          <View style={[styles.placeholder, { width: size, height: size, borderRadius: size / 2 }]}>
-            <ThemedText style={[styles.initials, { fontSize: size / 2.5 }]}>{initials}</ThemedText>
+          <View style={[styles.placeholder, { width: size, height: size, borderRadius: size / 2.2 }]}>
+            <ThemedText style={[styles.initials, { fontSize: size / 2.2 }]}>{initials}</ThemedText>
           </View>
         )}
       </View>
@@ -43,9 +45,7 @@ export const Avatar: React.FC<AvatarProps> = ({ uri, name, size = 40, status, st
               height: indicatorSize, 
               borderRadius: indicatorSize / 2,
               backgroundColor: statusColors[status],
-              bottom: 0,
-              right: 0,
-              borderWidth: size / 20
+              borderWidth: indicatorBorderSize,
             }
           ]} 
         />
@@ -62,19 +62,21 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   image: {
-    backgroundColor: '#313338',
+    backgroundColor: DiscordColors.tertiaryBackground,
   },
   placeholder: {
-    backgroundColor: '#5865F2',
+    backgroundColor: DiscordColors.blurple,
     alignItems: 'center',
     justifyContent: 'center',
   },
   initials: {
     color: '#fff',
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
   statusIndicator: {
     position: 'absolute',
-    borderColor: '#1E1F22',
+    borderColor: DiscordColors.primaryBackground, // Matches background to create gap effect
+    bottom: -2,
+    right: -2,
   },
 });

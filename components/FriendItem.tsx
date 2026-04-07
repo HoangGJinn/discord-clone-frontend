@@ -2,6 +2,7 @@ import React from "react";
 import { StyleSheet, TouchableOpacity, View } from "react-native";
 import { Avatar } from "./Avatar";
 import { ThemedText } from "./themed-text";
+import { DiscordColors, Spacing } from "@/constants/theme";
 
 export interface FriendItemProps {
   id: string;
@@ -25,10 +26,12 @@ export const FriendItem: React.FC<FriendItemProps> = ({
 }) => {
   return (
     <View style={styles.listItem}>
-      <Avatar name={username} uri={avatar} status="ONLINE" size={40} />
+      <Avatar name={username} uri={avatar} status="ONLINE" size={42} />
       <View style={styles.itemContent}>
-        <ThemedText type="defaultSemiBold">{username}</ThemedText>
-        <ThemedText type="default" style={styles.statusText}>
+        <ThemedText style={styles.usernameText}>
+          {username}
+        </ThemedText>
+        <ThemedText style={styles.statusText}>
           {statusText || "Online"}
         </ThemedText>
       </View>
@@ -65,37 +68,44 @@ export const FriendItem: React.FC<FriendItemProps> = ({
 const styles = StyleSheet.create({
   listItem: {
     flexDirection: "row",
-    padding: 15,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
     alignItems: "center",
-    borderBottomWidth: 0.5,
-    borderBottomColor: "#eee",
+    backgroundColor: DiscordColors.primaryBackground,
   },
   itemContent: {
     flex: 1,
-    marginLeft: 15,
+    marginLeft: Spacing.md,
+  },
+  usernameText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: DiscordColors.textPrimary,
   },
   statusText: {
-    fontSize: 12,
-    color: "#888",
+    fontSize: 13,
+    color: DiscordColors.textSecondary,
+    marginTop: 2,
   },
   actionButtons: {
     flexDirection: "row",
-    gap: 10,
+    gap: 12,
   },
   actionButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 6,
+    justifyContent: "center",
   },
   acceptButton: {
-    backgroundColor: "#3BA55D",
+    backgroundColor: DiscordColors.green,
   },
   rejectButton: {
-    backgroundColor: "#ED4245",
+    backgroundColor: DiscordColors.red,
   },
   buttonText: {
     color: "#fff",
-    fontSize: 12,
-    fontWeight: "bold",
+    fontSize: 13,
+    fontWeight: "600",
   },
 });

@@ -2,8 +2,8 @@ import { Avatar } from '@/components/Avatar';
 import React from 'react';
 import { View, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { useAuthStore } from '@/store/useAuthStore';
+import { DiscordColors, Spacing } from '@/constants/theme';
 
 export default function ProfileScreen() {
   const { user, logout } = useAuthStore();
@@ -14,15 +14,15 @@ export default function ProfileScreen() {
 
   if (!user) {
     return (
-      <ThemedView style={styles.container}>
-        <ThemedText type="title">Profile</ThemedText>
-        <ThemedText>Please login to see your profile.</ThemedText>
-      </ThemedView>
+      <View style={styles.container}>
+        <ThemedText style={styles.headerTitle}>Profile</ThemedText>
+        <ThemedText style={styles.emptyText}>Please login to see your profile.</ThemedText>
+      </View>
     );
   }
 
   return (
-    <ThemedView style={styles.container}>
+    <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.banner} />
         
@@ -30,131 +30,159 @@ export default function ProfileScreen() {
           <Avatar 
             name={user.username} 
             uri={user.avatar} 
-            size={80} 
+            size={90} 
             status="ONLINE" 
             style={styles.avatarShift}
           />
 
           <View style={styles.nameContainer}>
-            <ThemedText type="title" style={styles.displayName}>
+            <ThemedText style={styles.displayName}>
               {user.displayName || user.username}
             </ThemedText>
-            <ThemedText type="default" style={styles.username}>
+            <ThemedText style={styles.username}>
               {user.username}
             </ThemedText>
           </View>
         </View>
 
-        <View style={styles.section}>
-          <ThemedText type="subtitle" style={styles.sectionTitle}>User Info</ThemedText>
-          <View style={styles.infoRow}>
-            <ThemedText style={styles.infoLabel}>Email</ThemedText>
-            <ThemedText style={styles.infoValue}>{user.email}</ThemedText>
+        <View style={styles.profileCard}>
+          <View style={styles.section}>
+            <ThemedText style={styles.sectionTitle}>User Info</ThemedText>
+            <View style={styles.infoRow}>
+              <ThemedText style={styles.infoLabel}>Email</ThemedText>
+              <ThemedText style={styles.infoValue}>{user.email}</ThemedText>
+            </View>
+            <View style={styles.infoRow}>
+              <ThemedText style={styles.infoLabel}>User ID</ThemedText>
+              <ThemedText style={styles.infoValue}>{user.id}</ThemedText>
+            </View>
           </View>
-          <View style={styles.infoRow}>
-            <ThemedText style={styles.infoLabel}>User ID</ThemedText>
-            <ThemedText style={styles.infoValue}>{user.id}</ThemedText>
+
+          <View style={styles.section}>
+             <TouchableOpacity style={styles.editBtn}>
+                <ThemedText style={styles.editBtnText}>Edit Profile</ThemedText>
+             </TouchableOpacity>
           </View>
-        </View>
 
-        <View style={styles.section}>
-           <TouchableOpacity style={styles.editBtn}>
-              <ThemedText style={styles.editBtnText}>Edit Profile</ThemedText>
-           </TouchableOpacity>
-        </View>
-
-        <View style={styles.section}>
-          <TouchableOpacity 
-             style={[styles.button, styles.logoutButton]} 
-             onPress={handleLogout}
-          >
-            <ThemedText style={styles.buttonText}>Log Out</ThemedText>
-          </TouchableOpacity>
+          <View style={styles.section}>
+            <TouchableOpacity 
+               style={[styles.button, styles.logoutButton]} 
+               onPress={handleLogout}
+            >
+              <ThemedText style={styles.buttonText}>Log Out</ThemedText>
+            </TouchableOpacity>
+          </View>
         </View>
       </ScrollView>
-    </ThemedView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: DiscordColors.tertiaryBackground,
   },
   scrollContent: {
     flexGrow: 1,
   },
   banner: {
-    height: 120,
-    backgroundColor: '#5865F2',
+    height: 140,
+    backgroundColor: DiscordColors.blurple,
   },
   profileHeader: {
-    paddingHorizontal: 20,
-    marginTop: -40,
-    marginBottom: 20,
+    paddingHorizontal: Spacing.xl,
+    marginTop: -45,
+    marginBottom: Spacing.lg,
   },
   avatarShift: {
-    marginBottom: 10,
-    borderWidth: 4,
-    borderColor: '#1E1F22',
-    borderRadius: 45,
+    marginBottom: Spacing.sm,
+    borderWidth: 6,
+    borderColor: DiscordColors.tertiaryBackground,
+    borderRadius: 50,
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: DiscordColors.textPrimary,
+    marginTop: 60,
+    marginLeft: 20,
   },
   nameContainer: {
-    gap: 2,
+    marginTop: Spacing.xs,
   },
   displayName: {
     fontSize: 24,
-    fontWeight: 'bold',
+    fontWeight: "700",
+    color: DiscordColors.textPrimary,
   },
   username: {
-    fontSize: 14,
-    color: '#888',
+    fontSize: 15,
+    color: DiscordColors.textSecondary,
+    marginTop: 2,
+  },
+  profileCard: {
+    backgroundColor: DiscordColors.primaryBackground,
+    marginHorizontal: Spacing.lg,
+    borderRadius: 12,
+    paddingVertical: Spacing.sm,
+    overflow: 'hidden',
   },
   section: {
-    paddingHorizontal: 20,
-    marginVertical: 15,
+    paddingHorizontal: Spacing.lg,
+    marginVertical: Spacing.md,
   },
   sectionTitle: {
     fontSize: 12,
-    textTransform: 'uppercase',
-    color: '#888',
-    marginBottom: 10,
-    fontWeight: 'bold',
+    textTransform: "uppercase",
+    color: DiscordColors.textSecondary,
+    marginBottom: Spacing.sm,
+    fontWeight: "800",
   },
   infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#333',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: DiscordColors.divider,
   },
   infoLabel: {
-    color: '#ccc',
+    color: DiscordColors.textMuted,
+    fontSize: 14,
   },
   infoValue: {
-    color: '#fff',
+    color: DiscordColors.textPrimary,
+    fontSize: 14,
+    fontWeight: "500",
   },
   editBtn: {
-    backgroundColor: '#4E5058',
-    padding: 12,
-    borderRadius: 5,
-    alignItems: 'center',
+    backgroundColor: DiscordColors.cardBackground,
+    padding: 14,
+    borderRadius: 6,
+    alignItems: "center",
   },
   editBtnText: {
-    color: '#fff',
-    fontWeight: '600',
+    color: "#ffffff",
+    fontWeight: "600",
+    fontSize: 14,
   },
   button: {
-    padding: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
+    padding: 14,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
   },
   logoutButton: {
-    backgroundColor: '#ED4245',
+    backgroundColor: DiscordColors.red,
   },
   buttonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
+    color: "#ffffff",
+    fontWeight: "700",
+    fontSize: 15,
+  },
+  emptyText: {
+    color: DiscordColors.textMuted,
+    marginTop: 20,
+    marginLeft: 20,
   },
 });
