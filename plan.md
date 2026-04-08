@@ -7,10 +7,10 @@ Tài liệu này bao gồm lộ trình **10 ngày dồn dập**: **5 ngày đầ
 ## GIAI ĐOẠN 1: CUSTOMER APP (5 NGÀY - REACT NATIVE)
 
 ### Ngày 1: Hạ tầng & Xã hội (Infrastructure & Friends)
-- [ ] **Infrastructure**: Cấu hình Axios (Bearer token), StompJS (WebSocket), Zustand.
-- [ ] **Friend System**: Màn hình danh sách bạn bè (Tất cả, Chờ, Đã gửi).
-- [ ] **Social Actions**: Gửi/Hủy/Chấp nhận lời mời kết bạn (API: `FriendController`).
-- [ ] **Profile Basic**: Màn hình xem thông tin cá nhân.
+- [x] **Infrastructure**: Cấu hình Axios (Bearer token), StompJS (WebSocket), Zustand.
+- [x] **Friend System**: Màn hình danh sách bạn bè (Tất cả, Chờ, Đã gửi).
+- [x] **Social Actions**: Gửi/Hủy/Chấp nhận lời mời kết bạn (API: `FriendController`).
+- [x] **Profile Basic**: Màn hình xem thông tin cá nhân.
 
 ### Ngày 2: Chat 1-1 & Real-time (DM & WebSocket)
 - [ ] **DM List**: Hiển thị danh sách hội thoại DM gần nhất.
