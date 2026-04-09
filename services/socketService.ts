@@ -47,7 +47,9 @@ class SocketService {
       },
     });
 
-    this.client.activate();
+    if (this.client) {
+      this.client.activate();
+    }
   }
 
   disconnect() {
@@ -59,11 +61,10 @@ class SocketService {
   }
 
   subscribe(destination: string, callback: (message: IMessage) => void) {
-    if (!this.client || !this.client.active) {
-      console.warn("Cannot subscribe, STOMP client is not active");
+    if (!this.client) {
+      console.warn("STOMP: Cannot subscribe, client is null");
       return;
     }
-
     const subscription = this.client.subscribe(destination, callback);
     this.subscriptions.set(destination, subscription);
     return subscription;

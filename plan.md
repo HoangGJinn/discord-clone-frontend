@@ -13,9 +13,9 @@ Tài liệu này bao gồm lộ trình **10 ngày dồn dập**: **5 ngày đầ
 - [x] **Profile Basic**: Màn hình xem thông tin cá nhân.
 
 ### Ngày 2: Chat 1-1 & Real-time (DM & WebSocket)
-- [ ] **DM List**: Hiển thị danh sách hội thoại DM gần nhất.
-- [ ] **DMChatScreen**: Màn hình chat text riêng tư.
-- [ ] **Real-time**: Lắng nghe tin nhắn tức thời qua WebSocket (`/user/queue/dm`).
+- [x] **DM List**: Hiển thị danh sách hội thoại DM gần nhất.
+- [x] **DMChatScreen**: Màn hình chat text riêng tư.
+- [x] **Real-time**: Lắng nghe tin nhắn tức thời qua WebSocket (`/user/queue/dm`).
 
 ### Ngày 3: Chat Channel & Hiệu năng (Channel Chat)
 - [ ] **Channel Chat UI**: Layout danh sách tin nhắn chuyên nghiệp.
