@@ -6,7 +6,7 @@ import {
 } from "@/types/dm";
 import { create } from "zustand";
 
-// ─── State Interface ─────────────────────────────────────────
+// ─── State & Actions Interfaces ───────────────────────────────
 interface DMState {
   conversations: Conversation[];
   messages: DirectMessage[];
@@ -19,33 +19,23 @@ interface DMState {
   error: string | null;
 }
 
-// ─── Actions Interface (Interface Segregation) ───────────────
 interface DMActions {
-  // Conversation actions
   fetchConversations: () => Promise<void>;
   getOrCreateConversation: (friendId: string) => Promise<string | null>;
-
-  // Message actions
   fetchMessages: (conversationId: string, page?: number) => Promise<void>;
   loadMoreMessages: () => Promise<void>;
   sendMessage: (payload: SendDirectMessagePayload) => Promise<void>;
-
-  // Real-time actions
   addRealtimeMessage: (message: DirectMessage) => void;
   updateConversationPreview: (
     conversationId: string,
     message: DirectMessage,
   ) => void;
-
-  // Lifecycle
   setActiveConversation: (conversationId: string | null) => void;
   clearMessages: () => void;
   clearError: () => void;
 }
 
 type DMStore = DMState & DMActions;
-
-// ─── Store Implementation ────────────────────────────────────
 export const useDMStore = create<DMStore>((set, get) => ({
   // Initial state
   conversations: [],
@@ -62,6 +52,7 @@ export const useDMStore = create<DMStore>((set, get) => ({
 
   fetchConversations: async () => {
     set({ isLoadingConversations: true, error: null });
+
     try {
       const response = await apiClient.get("/direct-messages/conversations");
       set({ conversations: response.data, isLoadingConversations: false });
@@ -75,6 +66,7 @@ export const useDMStore = create<DMStore>((set, get) => ({
 
   getOrCreateConversation: async (friendId: string) => {
     set({ error: null });
+
     try {
       const response = await apiClient.get(
         `/direct-messages/conversation/by-user/${friendId}`,
@@ -108,6 +100,7 @@ export const useDMStore = create<DMStore>((set, get) => ({
       error: null,
       activeConversationId: conversationId,
     });
+
     try {
       const response = await apiClient.get(
         `/direct-messages/conversation/${conversationId}`,
@@ -150,6 +143,7 @@ export const useDMStore = create<DMStore>((set, get) => ({
 
   sendMessage: async (payload: SendDirectMessagePayload) => {
     set({ isSending: true, error: null });
+
     try {
       const response = await apiClient.post("/direct-messages", payload);
       const sentMessage: DirectMessage = response.data;

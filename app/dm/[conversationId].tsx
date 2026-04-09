@@ -173,28 +173,71 @@ export default function DMChatScreen() {
         </TouchableOpacity>
 
         {otherUser && (
-          <View style={styles.headerUser}>
-            <Avatar
-              name={otherUser.displayName || otherUser.username}
-              uri={otherUser.avatar}
-              size={32}
-              status={
-                (otherUser.status?.toUpperCase() as
-                  | 'ONLINE'
-                  | 'IDLE'
-                  | 'DND'
-                  | 'OFFLINE') || 'OFFLINE'
-              }
-            />
-            <View style={styles.headerInfo}>
-              <ThemedText style={styles.headerName} numberOfLines={1}>
-                {otherUser.displayName || otherUser.username}
-              </ThemedText>
-              <ThemedText style={styles.headerStatus}>
-                {otherUser.status || 'Offline'}
-              </ThemedText>
+          <>
+            <View style={styles.headerUser}>
+              <Avatar
+                name={otherUser.displayName || otherUser.username}
+                uri={otherUser.avatar}
+                size={32}
+                status={
+                  (otherUser.status?.toUpperCase() as
+                    | "ONLINE"
+                    | "IDLE"
+                    | "DND"
+                    | "OFFLINE") || "OFFLINE"
+                }
+              />
+              <View style={styles.headerInfo}>
+                <ThemedText style={styles.headerName} numberOfLines={1}>
+                  {otherUser.displayName || otherUser.username}
+                </ThemedText>
+                <ThemedText style={styles.headerStatus}>
+                  {otherUser.status || "Offline"}
+                </ThemedText>
+              </View>
             </View>
-          </View>
+
+            {/* Header Actions */}
+            <View style={styles.headerActions}>
+              <TouchableOpacity
+                onPress={() => alert("Voice Call feature coming soon!")}
+                style={styles.actionBtn}
+              >
+                <Ionicons
+                  name="call"
+                  size={22}
+                  color={DiscordColors.textSecondary}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => alert("Video Call feature coming soon!")}
+                style={styles.actionBtn}
+              >
+                <Ionicons
+                  name="videocam"
+                  size={24}
+                  color={DiscordColors.textSecondary}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => alert("Search feature coming soon!")}
+                style={styles.actionBtn}
+              >
+                <Ionicons
+                  name="search"
+                  size={24}
+                  color={DiscordColors.textSecondary}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.actionBtn}>
+                <Ionicons
+                  name="ellipsis-vertical"
+                  size={20}
+                  color={DiscordColors.textSecondary}
+                />
+              </TouchableOpacity>
+            </View>
+          </>
         )}
       </View>
 
@@ -293,13 +336,21 @@ const styles = StyleSheet.create({
   },
   headerName: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: "700",
     color: DiscordColors.textPrimary,
   },
   headerStatus: {
     fontSize: 12,
     color: DiscordColors.textMuted,
-    textTransform: 'capitalize',
+    textTransform: "capitalize",
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  actionBtn: {
+    paddingHorizontal: Spacing.xs,
+    marginLeft: Spacing.xs,
   },
   listContent: {
     paddingBottom: Spacing.sm,
