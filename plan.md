@@ -18,9 +18,9 @@ Tài liệu này bao gồm lộ trình **10 ngày dồn dập**: **5 ngày đầ
 - [x] **Real-time**: Lắng nghe tin nhắn tức thời qua WebSocket (`/user/queue/dm`).
 
 ### Ngày 3: Chat Channel & Hiệu năng (Channel Chat)
-- [ ] **Channel Chat UI**: Layout danh sách tin nhắn chuyên nghiệp.
-- [ ] **Infinite Scroll**: Load thêm tin nhắn cũ khi kéo lên trên.
-- [ ] **Message Input**: Gửi nhanh tin nhắn text & Emoji.
+- [x] **Channel Chat UI**: Layout danh sách tin nhắn chuyên nghiệp.
+- [x] **Infinite Scroll**: Load thêm tin nhắn cũ khi kéo lên trên.
+- [x] **Message Input**: Gửi nhanh tin nhắn text & Emoji.
 
 ### Ngày 4: Tin nhắn nâng cao & Media (Rich Chat & Search)
 - [ ] **Reactions & Media**: UI thả emoji, gửi ảnh qua API `/api/upload`.
