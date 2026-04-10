@@ -25,6 +25,27 @@ interface ChannelChatActions {
 
 type ChannelChatStore = ChannelChatState & ChannelChatActions;
 
+// helper to adapt backend flat response to nested format
+const adaptMessage = (msg: any): ChannelMessage => ({
+  id: msg.id,
+  channelId: msg.channelId,
+  content: msg.content,
+  createdAt: msg.createdAt,
+  updatedAt: msg.updatedAt,
+  edited: msg.edited,
+  sender: {
+    id: String(msg.senderId),
+    username: msg.senderName || "Unknown",
+    displayName: msg.senderName || "Unknown",
+    avatar: msg.senderAvatar || "",
+    email: "",
+    status: "ONLINE",
+    role: [],
+  },
+  attachments: msg.attachments || [],
+  reactions: msg.reactions || [],
+});
+
 export const useChannelChatStore = create<ChannelChatStore>((set, get) => ({
   messages: [],
   activeChannelId: null,
@@ -48,9 +69,8 @@ export const useChannelChatStore = create<ChannelChatStore>((set, get) => ({
       );
 
       const data = response.data;
-      const newMessages: ChannelMessage[] = Array.isArray(data)
-        ? data
-        : data.content ?? [];
+      const rawArray = Array.isArray(data) ? data : data.content ?? [];
+      const newMessages: ChannelMessage[] = rawArray.map(adaptMessage);
       const isLastPage = Array.isArray(data) ? true : data.last ?? true;
 
       set({
@@ -101,7 +121,8 @@ export const useChannelChatStore = create<ChannelChatStore>((set, get) => ({
     }
   },
 
-  addRealtimeMessage: (message: ChannelMessage) => {
+  addRealtimeMessage: (rawMessage: any) => {
+    const message = adaptMessage(rawMessage);
     set((state) => {
       // Deduplicate
       const exists = state.messages.some((m) => m.id === message.id);

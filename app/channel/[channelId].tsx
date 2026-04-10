@@ -9,7 +9,7 @@ import {
   Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, Feather } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
@@ -167,9 +167,9 @@ export default function ChannelChatScreen() {
         </TouchableOpacity>
 
         <View style={styles.headerTitleContainer}>
-          <Ionicons name="hashtag" size={20} color={DiscordColors.textMuted} style={styles.hashIcon} />
+          <Feather name="hash" size={20} color={DiscordColors.textMuted} style={styles.hashIcon} />
           <ThemedText style={styles.headerName} numberOfLines={1}>
-            general {/* Should ideally come from a channel store or props */}
+            {channelId ? `channel-${channelId}` : 'channel'}
           </ThemedText>
         </View>
 
@@ -213,7 +213,7 @@ export default function ChannelChatScreen() {
           !isLoadingMessages ? (
             <View style={styles.emptyContainer}>
               <View style={styles.hashCircle}>
-                <Ionicons name="hashtag" size={40} color={DiscordColors.textPrimary} />
+                <Feather name="hash" size={40} color={DiscordColors.textPrimary} />
               </View>
               <ThemedText style={styles.emptyTitle}>
                 Welcome to channel!
