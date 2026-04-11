@@ -20,6 +20,7 @@ export interface DirectMessage {
   attachments?: Attachment[];
   reactions?: Reaction[];
   edited?: boolean;
+  pinned?: boolean;
   createdAt: string;
   updatedAt?: string;
 }

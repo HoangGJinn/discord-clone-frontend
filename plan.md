@@ -23,9 +23,9 @@ Tài liệu này bao gồm lộ trình **10 ngày dồn dập**: **5 ngày đầ
 - [x] **Message Input**: Gửi nhanh tin nhắn text & Emoji.
 
 ### Ngày 4: Tin nhắn nâng cao & Media (Rich Chat & Search)
-- [ ] **Reactions & Media**: UI thả emoji, gửi ảnh qua API `/api/upload`.
-- [ ] **Message Actions**: Ghim, sửa, xóa tin nhắn.
-- [ ] **Global Search**: Tìm kiếm nhanh Server, Channel, Người dùng.
+- [x] **Reactions & Media**: UI thả emoji, gửi ảnh qua API `/api/upload`.
+- [x] **Message Actions**: Ghim, sửa, xóa tin nhắn.
+- [x] **Global Search**: Tìm kiếm nhanh Server, Channel, Người dùng.
 
 ### Ngày 5: Voice Chat & Hoàn thiện Customer (Voice & Polish)
 - [ ] **Voice Call**: Tích hợp Agora SDK (Join/Leave, Mute/Deafen).

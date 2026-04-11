@@ -1,7 +1,12 @@
 import { create } from "zustand";
 import apiClient from "@/api/client";
 import socketService from "@/services/socketService";
-import { ChannelMessage, SendChannelMessagePayload } from "@/types/channel";
+import {
+  ChannelMessage,
+  SendChannelMessagePayload,
+  EditMessagePayload,
+  ReactionPayload,
+} from "@/types/channel";
 
 interface ChannelChatState {
   messages: ChannelMessage[];
@@ -21,6 +26,15 @@ interface ChannelChatActions {
   setActiveChannel: (channelId: string | null) => void;
   clearMessages: () => void;
   clearError: () => void;
+  // ── Day 4: Message Actions ─────────────────────────────
+  editMessage: (messageId: string, payload: EditMessagePayload) => Promise<void>;
+  deleteMessage: (messageId: string) => Promise<void>;
+  pinMessage: (messageId: string) => Promise<void>;
+  unpinMessage: (messageId: string) => Promise<void>;
+  addReaction: (messageId: string, payload: ReactionPayload) => Promise<void>;
+  removeReaction: (messageId: string, payload: ReactionPayload) => Promise<void>;
+  updateMessageInList: (messageId: string, updates: Partial<ChannelMessage>) => void;
+  removeMessageFromList: (messageId: string) => void;
 }
 
 type ChannelChatStore = ChannelChatState & ChannelChatActions;
@@ -33,6 +47,7 @@ const adaptMessage = (msg: any): ChannelMessage => ({
   createdAt: msg.createdAt,
   updatedAt: msg.updatedAt,
   edited: msg.edited,
+  pinned: msg.pinned,
   sender: {
     id: String(msg.senderId),
     username: msg.senderName || "Unknown",
@@ -149,4 +164,78 @@ export const useChannelChatStore = create<ChannelChatStore>((set, get) => ({
   },
 
   clearError: () => set({ error: null }),
+
+  // ── Day 4: Message Actions Implementation ──────────────
+
+  editMessage: async (messageId: string, payload: EditMessagePayload) => {
+    try {
+      await apiClient.put(`/messages/${messageId}`, payload);
+      get().updateMessageInList(messageId, {
+        content: payload.content,
+        edited: true,
+      });
+    } catch (err: any) {
+      set({ error: err.response?.data?.message || err.message });
+    }
+  },
+
+  deleteMessage: async (messageId: string) => {
+    try {
+      await apiClient.delete(`/messages/${messageId}`);
+      get().removeMessageFromList(messageId);
+    } catch (err: any) {
+      set({ error: err.response?.data?.message || err.message });
+    }
+  },
+
+  pinMessage: async (messageId: string) => {
+    try {
+      await apiClient.post(`/messages/${messageId}/pin`);
+      get().updateMessageInList(messageId, { pinned: true });
+    } catch (err: any) {
+      set({ error: err.response?.data?.message || err.message });
+    }
+  },
+
+  unpinMessage: async (messageId: string) => {
+    try {
+      await apiClient.delete(`/messages/${messageId}/pin`);
+      get().updateMessageInList(messageId, { pinned: false });
+    } catch (err: any) {
+      set({ error: err.response?.data?.message || err.message });
+    }
+  },
+
+  addReaction: async (messageId: string, payload: ReactionPayload) => {
+    try {
+      await apiClient.post(`/messages/${messageId}/reactions`, payload);
+      // Optimistic: will also arrive via WebSocket
+    } catch (err: any) {
+      set({ error: err.response?.data?.message || err.message });
+    }
+  },
+
+  removeReaction: async (messageId: string, payload: ReactionPayload) => {
+    try {
+      await apiClient.delete(`/messages/${messageId}/reactions`, {
+        data: payload,
+      });
+    } catch (err: any) {
+      set({ error: err.response?.data?.message || err.message });
+    }
+  },
+
+  updateMessageInList: (messageId: string, updates: Partial<ChannelMessage>) => {
+    set((state) => ({
+      messages: state.messages.map((m) =>
+        m.id === messageId ? { ...m, ...updates } : m
+      ),
+    }));
+  },
+
+  removeMessageFromList: (messageId: string) => {
+    set((state) => ({
+      messages: state.messages.filter((m) => m.id !== messageId),
+    }));
+  },
 }));

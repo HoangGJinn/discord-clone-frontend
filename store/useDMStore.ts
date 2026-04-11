@@ -33,6 +33,13 @@ interface DMActions {
   setActiveConversation: (conversationId: string | null) => void;
   clearMessages: () => void;
   clearError: () => void;
+  // ── Day 4: Message Actions ─────────────────────────────
+  editMessage: (messageId: string, content: string) => Promise<void>;
+  deleteMessage: (messageId: string) => Promise<void>;
+  addReaction: (messageId: string, emoji: string) => Promise<void>;
+  removeReaction: (messageId: string, emoji: string) => Promise<void>;
+  updateMessageInList: (messageId: string, updates: Partial<DirectMessage>) => void;
+  removeMessageFromList: (messageId: string) => void;
 }
 
 type DMStore = DMState & DMActions;
@@ -218,4 +225,56 @@ export const useDMStore = create<DMStore>((set, get) => ({
   },
 
   clearError: () => set({ error: null }),
+
+  // ── Day 4: Message Actions Implementation ──────────────
+
+  editMessage: async (messageId: string, content: string) => {
+    try {
+      await apiClient.put(`/direct-messages/${messageId}`, { content });
+      get().updateMessageInList(messageId, { content, edited: true });
+    } catch (err: any) {
+      set({ error: err.response?.data?.message || err.message });
+    }
+  },
+
+  deleteMessage: async (messageId: string) => {
+    try {
+      await apiClient.delete(`/direct-messages/${messageId}`);
+      get().removeMessageFromList(messageId);
+    } catch (err: any) {
+      set({ error: err.response?.data?.message || err.message });
+    }
+  },
+
+  addReaction: async (messageId: string, emoji: string) => {
+    try {
+      await apiClient.post(`/direct-messages/${messageId}/reactions`, { emoji });
+    } catch (err: any) {
+      set({ error: err.response?.data?.message || err.message });
+    }
+  },
+
+  removeReaction: async (messageId: string, emoji: string) => {
+    try {
+      await apiClient.delete(`/direct-messages/${messageId}/reactions`, {
+        data: { emoji },
+      });
+    } catch (err: any) {
+      set({ error: err.response?.data?.message || err.message });
+    }
+  },
+
+  updateMessageInList: (messageId: string, updates: Partial<DirectMessage>) => {
+    set((state) => ({
+      messages: state.messages.map((m) =>
+        m.id === messageId ? { ...m, ...updates } : m
+      ),
+    }));
+  },
+
+  removeMessageFromList: (messageId: string) => {
+    set((state) => ({
+      messages: state.messages.filter((m) => m.id !== messageId),
+    }));
+  },
 }));

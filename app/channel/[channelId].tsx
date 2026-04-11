@@ -1,12 +1,12 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   FlatList,
   StyleSheet,
   ActivityIndicator,
   TouchableOpacity,
-  KeyboardAvoidingView,
-  Platform,
+  Alert,
+  Clipboard,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons, Feather } from '@expo/vector-icons';
@@ -15,6 +15,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { MessageBubble } from '@/components/MessageBubble';
 import { ChatInput } from '@/components/ChatInput';
+import { EditMessageInput } from '@/components/EditMessageInput';
+import { MessageActionSheet } from '@/components/MessageActionSheet';
+import { EmojiPicker } from '@/components/EmojiPicker';
 import { useChannelChatStore } from '@/store/useChannelChatStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { ChannelMessage } from '@/types/channel';
@@ -62,7 +65,20 @@ export default function ChannelChatScreen() {
     loadMoreMessages,
     sendMessage,
     clearMessages,
+    editMessage,
+    deleteMessage,
+    pinMessage,
+    unpinMessage,
+    addReaction,
+    removeReaction,
   } = useChannelChatStore();
+
+  // ── Day 4 State ────────────────────────────────────────
+  const [selectedMessage, setSelectedMessage] = useState<ChannelMessage | null>(null);
+  const [actionSheetVisible, setActionSheetVisible] = useState(false);
+  const [editingMessage, setEditingMessage] = useState<ChannelMessage | null>(null);
+  const [emojiPickerVisible, setEmojiPickerVisible] = useState(false);
+  const [emojiTargetMessageId, setEmojiTargetMessageId] = useState<string | null>(null);
 
   // ── Load messages on mount ─────────────────────────────
   useEffect(() => {
@@ -79,11 +95,141 @@ export default function ChannelChatScreen() {
 
   // ── Send message handler ───────────────────────────────
   const handleSend = useCallback(
-    (content: string) => {
+    (content: string, attachmentUrls?: string[]) => {
       if (!channelId) return;
-      sendMessage(channelId, { content });
+      sendMessage(channelId, {
+        content,
+        attachments: attachmentUrls,
+      });
     },
     [channelId, sendMessage],
+  );
+
+  // ── Message long-press handler ─────────────────────────
+  const handleLongPress = useCallback((message: ChannelMessage) => {
+    setSelectedMessage(message);
+    setActionSheetVisible(true);
+  }, []);
+
+  // ── Build action sheet actions ─────────────────────────
+  const getActions = useCallback(() => {
+    if (!selectedMessage || !user) return [];
+
+    const isOwn = selectedMessage.sender.id === user.id;
+    const actions = [];
+
+    // Copy text
+    actions.push({
+      id: 'copy',
+      label: 'Copy Text',
+      icon: 'copy-outline' as const,
+      onPress: () => {
+        Clipboard.setString(selectedMessage.content);
+      },
+    });
+
+    // Pin/Unpin
+    actions.push({
+      id: 'pin',
+      label: selectedMessage.pinned ? 'Unpin Message' : 'Pin Message',
+      icon: 'pin-outline' as const,
+      onPress: () => {
+        if (selectedMessage.pinned) {
+          unpinMessage(selectedMessage.id);
+        } else {
+          pinMessage(selectedMessage.id);
+        }
+      },
+    });
+
+    // Edit (own message only)
+    if (isOwn) {
+      actions.push({
+        id: 'edit',
+        label: 'Edit Message',
+        icon: 'pencil-outline' as const,
+        onPress: () => {
+          setEditingMessage(selectedMessage);
+        },
+      });
+    }
+
+    // Delete (own message)
+    if (isOwn) {
+      actions.push({
+        id: 'delete',
+        label: 'Delete Message',
+        icon: 'trash-outline' as const,
+        color: DiscordColors.red,
+        onPress: () => {
+          Alert.alert(
+            'Delete Message',
+            'Are you sure you want to delete this message?',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Delete',
+                style: 'destructive',
+                onPress: () => deleteMessage(selectedMessage.id),
+              },
+            ],
+          );
+        },
+      });
+    }
+
+    return actions;
+  }, [selectedMessage, user, pinMessage, unpinMessage, deleteMessage]);
+
+  // ── Quick react from action sheet ──────────────────────
+  const handleQuickReact = useCallback(
+    (emoji: string) => {
+      if (!selectedMessage) return;
+      addReaction(selectedMessage.id, { emoji });
+    },
+    [selectedMessage, addReaction],
+  );
+
+  // ── Toggle reaction on message ─────────────────────────
+  const handleToggleReaction = useCallback(
+    (messageId: string, emoji: string) => {
+      const msg = messages.find((m) => m.id === messageId);
+      if (!msg || !user) return;
+
+      const existing = msg.reactions?.find((r) => r.emoji === emoji);
+      if (existing?.users.includes(user.id)) {
+        removeReaction(messageId, { emoji });
+      } else {
+        addReaction(messageId, { emoji });
+      }
+    },
+    [messages, user, addReaction, removeReaction],
+  );
+
+  // ── Open emoji picker for reaction ─────────────────────
+  const handleAddReaction = useCallback((messageId: string) => {
+    setEmojiTargetMessageId(messageId);
+    setEmojiPickerVisible(true);
+  }, []);
+
+  const handleEmojiSelected = useCallback(
+    (emoji: string) => {
+      if (emojiTargetMessageId) {
+        addReaction(emojiTargetMessageId, { emoji });
+      }
+      setEmojiTargetMessageId(null);
+    },
+    [emojiTargetMessageId, addReaction],
+  );
+
+  // ── Edit save handler ──────────────────────────────────
+  const handleEditSave = useCallback(
+    (newContent: string) => {
+      if (!editingMessage) return;
+      editMessage(editingMessage.id, { content: newContent });
+      setEditingMessage(null);
+    },
+    [editingMessage, editMessage],
   );
 
   // ── Determine if message needs a header ────────────────
@@ -129,16 +275,19 @@ export default function ChannelChatScreen() {
               <View style={styles.daySeparatorLine} />
             </View>
           )}
-          {/* Note: MessageBubble handles both DirectMessage and ChannelMessage because their structural layout (sender, content, createdAt) is similar */}
           <MessageBubble
-            message={item as any} 
+            message={item as any}
             isOwn={isOwn}
             showHeader={showHeader}
+            onLongPress={handleLongPress as any}
+            onToggleReaction={handleToggleReaction}
+            onAddReaction={handleAddReaction}
+            currentUserId={user?.id}
           />
         </View>
       );
     },
-    [user?.id, shouldShowHeader, messages],
+    [user?.id, shouldShowHeader, messages, handleLongPress, handleToggleReaction, handleAddReaction],
   );
 
   const keyExtractor = useCallback((item: ChannelMessage) => item.id, []);
@@ -229,11 +378,40 @@ export default function ChannelChatScreen() {
         }
       />
 
-      {/* Chat input */}
-      <ChatInput
-        onSend={handleSend}
-        placeholder={`Message in channel`}
-        disabled={isSending}
+      {/* Chat input or Edit input */}
+      {editingMessage ? (
+        <EditMessageInput
+          originalContent={editingMessage.content}
+          onSave={handleEditSave}
+          onCancel={() => setEditingMessage(null)}
+        />
+      ) : (
+        <ChatInput
+          onSend={handleSend}
+          placeholder={`Message in channel`}
+          disabled={isSending}
+        />
+      )}
+
+      {/* Action Sheet */}
+      <MessageActionSheet
+        visible={actionSheetVisible}
+        onClose={() => {
+          setActionSheetVisible(false);
+          setSelectedMessage(null);
+        }}
+        actions={getActions()}
+        onQuickReact={handleQuickReact}
+      />
+
+      {/* Emoji Picker for reactions */}
+      <EmojiPicker
+        visible={emojiPickerVisible}
+        onClose={() => {
+          setEmojiPickerVisible(false);
+          setEmojiTargetMessageId(null);
+        }}
+        onSelectEmoji={handleEmojiSelected}
       />
     </SafeAreaView>
   );
