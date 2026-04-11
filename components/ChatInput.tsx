@@ -6,15 +6,19 @@ import {
   TouchableOpacity,
   Platform,
   KeyboardAvoidingView,
+  Alert,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
+import { AttachmentPreview } from './AttachmentPreview';
 import { DiscordColors, Spacing } from '@/constants/theme';
+import apiClient from '@/api/client';
 
 // ─── Props Interface ─────────────────────────────────────────
 interface ChatInputProps {
   /** Called when the user submits a message */
-  onSend: (content: string) => void;
+  onSend: (content: string, attachmentUrls?: string[]) => void;
   /** Placeholder text for the input */
   placeholder?: string;
   /** Disables the input while sending */
@@ -28,26 +32,95 @@ export function ChatInput({
   disabled = false,
 }: ChatInputProps) {
   const [text, setText] = useState('');
+  const [pendingAttachment, setPendingAttachment] = useState<string | null>(null);
+  const [attachmentUrl, setAttachmentUrl] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
-  const canSend = text.trim().length > 0 && !disabled;
+  const canSend = (text.trim().length > 0 || attachmentUrl) && !disabled && !isUploading;
 
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed && !attachmentUrl) return;
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    onSend(trimmed);
+    const urls = attachmentUrl ? [attachmentUrl] : undefined;
+    onSend(trimmed || ' ', urls);
     setText('');
-  }, [text, onSend]);
+    setPendingAttachment(null);
+    setAttachmentUrl(null);
+  }, [text, attachmentUrl, onSend]);
+
+  const handlePickImage = useCallback(async () => {
+    try {
+      // Request permission
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResult.granted) {
+        Alert.alert('Permission Required', 'Please grant photo library access to send images.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 0.8,
+        allowsEditing: false,
+      });
+
+      if (result.canceled || !result.assets?.[0]) return;
+
+      const asset = result.assets[0];
+      setPendingAttachment(asset.uri);
+      setIsUploading(true);
+
+      // Upload to server
+      const formData = new FormData();
+      formData.append('file', {
+        uri: asset.uri,
+        type: asset.mimeType || 'image/jpeg',
+        name: asset.fileName || 'image.jpg',
+      } as any);
+
+      const response = await apiClient.post('/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      setAttachmentUrl(response.data.url || response.data);
+      setIsUploading(false);
+    } catch (err: any) {
+      console.error('Image upload failed:', err);
+      Alert.alert('Upload Failed', 'Could not upload image. Please try again.');
+      setPendingAttachment(null);
+      setAttachmentUrl(null);
+      setIsUploading(false);
+    }
+  }, []);
+
+  const handleRemoveAttachment = useCallback(() => {
+    setPendingAttachment(null);
+    setAttachmentUrl(null);
+    setIsUploading(false);
+  }, []);
 
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
+      {/* Attachment preview */}
+      {pendingAttachment && (
+        <AttachmentPreview
+          uri={pendingAttachment}
+          isUploading={isUploading}
+          onRemove={handleRemoveAttachment}
+        />
+      )}
+
       <View style={styles.container}>
         {/* Attachment button */}
-        <TouchableOpacity style={styles.iconBtn} activeOpacity={0.6}>
+        <TouchableOpacity
+          style={styles.iconBtn}
+          activeOpacity={0.6}
+          onPress={handlePickImage}
+        >
           <Ionicons
             name="add-circle"
             size={26}

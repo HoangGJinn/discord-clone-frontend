@@ -1,8 +1,12 @@
 import React, { memo } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
+import { Ionicons } from '@expo/vector-icons';
 import { Avatar } from './Avatar';
 import { ThemedText } from './themed-text';
+import { ReactionBar } from './ReactionBar';
+import { ImageAttachment } from './ImageAttachment';
 import { DiscordColors, Spacing } from '@/constants/theme';
 import { DirectMessage } from '@/types/dm';
 import { formatMessageTime } from '@/utils/formatTime';
@@ -15,59 +19,114 @@ interface MessageBubbleProps {
   isOwn: boolean;
   /** Whether to show the avatar + username header (false for grouped messages) */
   showHeader: boolean;
+  /** Called when user long-presses on message */
+  onLongPress?: (message: DirectMessage) => void;
+  /** Called when user toggles a reaction */
+  onToggleReaction?: (messageId: string, emoji: string) => void;
+  /** Called when user wants to add a new reaction */
+  onAddReaction?: (messageId: string) => void;
+  /** Current user ID for reaction highlighting */
+  currentUserId?: string;
 }
 
 // ─── Component (SRP: Only renders a single message bubble) ───
-function MessageBubbleInner({ message, isOwn, showHeader }: MessageBubbleProps) {
+function MessageBubbleInner({
+  message,
+  isOwn,
+  showHeader,
+  onLongPress,
+  onToggleReaction,
+  onAddReaction,
+  currentUserId,
+}: MessageBubbleProps) {
+  const handleLongPress = () => {
+    if (onLongPress) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      onLongPress(message);
+    }
+  };
+
   return (
-    <Animated.View
-      entering={FadeIn.duration(200)}
-      style={[
-        styles.container,
-        showHeader ? styles.withHeader : styles.grouped,
-      ]}
+    <TouchableOpacity
+      activeOpacity={0.8}
+      onLongPress={handleLongPress}
+      delayLongPress={400}
     >
-      {/* Avatar column */}
-      <View style={styles.avatarColumn}>
-        {showHeader ? (
-          <Avatar
-            name={message.sender.username}
-            uri={message.sender.avatar}
-            size={40}
-          />
-        ) : (
-          <View style={styles.avatarSpacer} />
-        )}
-      </View>
+      <Animated.View
+        entering={FadeIn.duration(200)}
+        style={[
+          styles.container,
+          showHeader ? styles.withHeader : styles.grouped,
+        ]}
+      >
+        {/* Avatar column */}
+        <View style={styles.avatarColumn}>
+          {showHeader ? (
+            <Avatar
+              name={message.sender.username}
+              uri={message.sender.avatar}
+              size={40}
+            />
+          ) : (
+            <View style={styles.avatarSpacer} />
+          )}
+        </View>
 
-      {/* Content column */}
-      <View style={styles.contentColumn}>
-        {showHeader && (
-          <View style={styles.headerRow}>
-            <ThemedText
-              style={[
-                styles.username,
-                isOwn && styles.ownUsername,
-              ]}
-            >
-              {message.sender.displayName || message.sender.username}
-            </ThemedText>
-            <ThemedText style={styles.timestamp}>
-              {formatMessageTime(message.createdAt)}
-            </ThemedText>
-          </View>
-        )}
+        {/* Content column */}
+        <View style={styles.contentColumn}>
+          {showHeader && (
+            <View style={styles.headerRow}>
+              <ThemedText
+                style={[
+                  styles.username,
+                  isOwn && styles.ownUsername,
+                ]}
+              >
+                {message.sender.displayName || message.sender.username}
+              </ThemedText>
+              <ThemedText style={styles.timestamp}>
+                {formatMessageTime(message.createdAt)}
+              </ThemedText>
+              {/* Pin indicator */}
+              {message.pinned && (
+                <Ionicons
+                  name="pin"
+                  size={12}
+                  color={DiscordColors.yellow}
+                  style={styles.pinIcon}
+                />
+              )}
+            </View>
+          )}
 
-        <ThemedText style={styles.content}>
-          {message.content}
-        </ThemedText>
+          <ThemedText style={styles.content}>
+            {message.content}
+          </ThemedText>
 
-        {/* Edited indicator */}
-        {message.edited && (
-          <ThemedText style={styles.editedLabel}>(edited)</ThemedText>
-        )}
-      </View>
-    </Animated.View>
+          {/* Image attachments */}
+          {message.attachments && message.attachments.length > 0 && (
+            <ImageAttachment attachments={message.attachments} />
+          )}
+
+          {/* Edited indicator */}
+          {message.edited && (
+            <ThemedText style={styles.editedLabel}>(edited)</ThemedText>
+          )}
+
+          {/* Reactions */}
+          {message.reactions && message.reactions.length > 0 && (
+            <ReactionBar
+              reactions={message.reactions}
+              currentUserId={currentUserId || ''}
+              onToggleReaction={(emoji) =>
+                onToggleReaction?.(message.id, emoji)
+              }
+              onAddReaction={() => onAddReaction?.(message.id)}
+            />
+          )}
+        </View>
+      </Animated.View>
+    </TouchableOpacity>
   );
 }
 
@@ -114,6 +173,9 @@ const styles = StyleSheet.create({
   timestamp: {
     fontSize: 11,
     color: DiscordColors.textMuted,
+  },
+  pinIcon: {
+    marginLeft: 6,
   },
   content: {
     fontSize: 15,
