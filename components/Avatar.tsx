@@ -6,7 +6,7 @@ import { DiscordColors } from '@/constants/theme';
 
 interface AvatarProps {
   uri?: string;
-  name: string;
+  name?: string | null;
   size?: number;
   status?: 'ONLINE' | 'IDLE' | 'DND' | 'OFFLINE';
   style?: ViewStyle;
@@ -20,7 +20,8 @@ const statusColors = {
 };
 
 export const Avatar: React.FC<AvatarProps> = ({ uri, name, size = 40, status, style }) => {
-  const initials = name.charAt(0).toUpperCase();
+  const safeName = typeof name === 'string' ? name.trim() : '';
+  const initials = safeName ? safeName.charAt(0).toUpperCase() : '?';
   const indicatorSize = size / 3.2;
   const indicatorBorderSize = size / 12;
 

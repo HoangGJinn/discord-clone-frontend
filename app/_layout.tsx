@@ -1,5 +1,5 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 
@@ -7,6 +7,8 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 
 import { useAuthStore } from '@/store/useAuthStore';
 import { useEffect } from 'react';
+import { ActivityIndicator, View } from 'react-native';
+import { DiscordColors } from '@/constants/theme';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -14,15 +16,52 @@ export const unstable_settings = {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-  const initializeAuth = useAuthStore((state) => state.initialize);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const isLoading = useAuthStore((state) => state.isLoading);
+  const segments = useSegments();
+  const router = useRouter();
 
   useEffect(() => {
-    initializeAuth();
+    void useAuthStore.getState().initialize();
   }, []);
+
+  useEffect(() => {
+    if (isLoading) return;
+
+    const inAuthGroup = segments[0] === 'auth';
+
+    if (!isAuthenticated && !inAuthGroup) {
+      router.replace('/auth/login');
+      return;
+    }
+
+    if (isAuthenticated && inAuthGroup) {
+      router.replace('/(tabs)');
+    }
+  }, [isAuthenticated, isLoading, router, segments]);
+
+  if (isLoading) {
+    return (
+      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <View
+          style={{
+            flex: 1,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: DiscordColors.primaryBackground,
+          }}
+        >
+          <ActivityIndicator size="large" color={DiscordColors.blurple} />
+        </View>
+        <StatusBar style="auto" />
+      </ThemeProvider>
+    );
+  }
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack>
+        <Stack.Screen name="auth" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="dm/[conversationId]" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
