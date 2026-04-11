@@ -8,6 +8,7 @@ export interface ChannelMessage {
   attachments?: Attachment[];
   reactions?: Reaction[];
   edited?: boolean;
+  pinned?: boolean;
   createdAt: string;
   updatedAt?: string;
   replyToId?: string;
@@ -18,6 +19,16 @@ export interface SendChannelMessagePayload {
   content: string;
   replyToId?: string;
   attachments?: string[];
+}
+
+// ─── Edit Message Payload ────────────────────────────────────
+export interface EditMessagePayload {
+  content: string;
+}
+
+// ─── Reaction Payload ────────────────────────────────────────
+export interface ReactionPayload {
+  emoji: string;
 }
 
 // ─── Paginated Response ──────────────────────────────────────
