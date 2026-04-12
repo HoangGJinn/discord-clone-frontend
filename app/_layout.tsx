@@ -9,6 +9,7 @@ import { useAuthStore } from '@/store/useAuthStore';
 import { useEffect } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { DiscordColors } from '@/constants/theme';
+import socketService from '@/services/socketService';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -39,6 +40,13 @@ export default function RootLayout() {
       router.replace('/(tabs)');
     }
   }, [isAuthenticated, isLoading, router, segments]);
+
+  // ── WebSocket Lifecycle ──────────────────────────
+  useEffect(() => {
+    if (isAuthenticated && !isLoading) {
+      socketService.connect();
+    }
+  }, [isAuthenticated, isLoading]);
 
   if (isLoading) {
     return (

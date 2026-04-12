@@ -1,55 +1,101 @@
 import { Client, IFrame, IMessage } from "@stomp/stompjs";
-import SockJS from "sockjs-client";
 import { useAuthStore } from "../store/useAuthStore";
 
-// Polyfills for TextEncoder/Decoder if needed in RN
-import "text-encoding";
+// Polyfills for TextEncoder/Decoder required by STOMPjs v7
+import { TextEncoder, TextDecoder } from "text-encoding";
+
+if (typeof global.TextEncoder === "undefined") {
+  (global as any).TextEncoder = TextEncoder;
+}
+if (typeof global.TextDecoder === "undefined") {
+  (global as any).TextDecoder = TextDecoder;
+}
 
 const SOCKET_URL =
-  process.env.EXPO_PUBLIC_SOCKET_URL || "http://10.0.2.2:8085/ws";
+  process.env.EXPO_PUBLIC_SOCKET_URL || "ws://10.0.2.2:8085/ws-native";
 
 class SocketService {
   private client: Client | null = null;
   private subscriptions: Map<string, any> = new Map();
+  private queuedSubscriptions: Array<{
+    destination: string;
+    callback: (message: IMessage) => void;
+  }> = [];
+  private isConnecting: boolean = false;
 
   connect(onConnectCb?: (frame: IFrame) => void, onDisconnectCb?: () => void) {
-    if (this.client?.active) return;
+    if (this.client?.active) {
+      console.log("STOMP: Already active, skipping connect.");
+      return;
+    }
+
+    if (this.isConnecting) {
+      console.log("STOMP: Already connecting, skipping duplicate connect call.");
+      return;
+    }
 
     const token = useAuthStore.getState().token;
+    if (!token) {
+      console.warn("STOMP: No auth token available, cannot connect.");
+      return;
+    }
+
+    this.isConnecting = true;
+    console.log("=== STOMP: Attempting to connect ===");
+    console.log("STOMP: URL =", SOCKET_URL);
+    console.log("STOMP: Token =", token.substring(0, 20) + "...");
 
     this.client = new Client({
-      brokerURL: SOCKET_URL.startsWith("ws") ? SOCKET_URL : undefined,
-      webSocketFactory: SOCKET_URL.startsWith("http")
-        ? () => new SockJS(SOCKET_URL)
-        : undefined,
+      brokerURL: SOCKET_URL,
       connectHeaders: {
         Authorization: `Bearer ${token}`,
       },
       debug: (msg) => {
-        if (process.env.NODE_ENV === "development") {
-          console.log("STOMP DEBUG:", msg);
-        }
+        // Log ALL STOMP messages for debugging
+        console.log("STOMP RAW:", msg);
       },
       reconnectDelay: 5000,
-      heartbeatIncoming: 4000,
-      heartbeatOutgoing: 4000,
+      heartbeatIncoming: 10000,
+      heartbeatOutgoing: 10000,
       onConnect: (frame) => {
-        console.log("STOMP Connected!");
+        console.log("=== STOMP: Connected successfully! ===");
+        this.isConnecting = false;
+
+        // Process queued subscriptions
+        this.queuedSubscriptions.forEach((sub) => {
+          console.log(
+            `STOMP: Subscribing to queued destination: ${sub.destination}`
+          );
+          this._doSubscribe(sub.destination, sub.callback);
+        });
+        this.queuedSubscriptions = [];
+
         if (onConnectCb) onConnectCb(frame);
       },
       onDisconnect: () => {
-        console.log("STOMP Disconnected!");
+        console.log("STOMP: Disconnected.");
+        this.isConnecting = false;
         if (onDisconnectCb) onDisconnectCb();
       },
+      onWebSocketError: (event) => {
+        console.error("STOMP [WS ERROR]:", JSON.stringify(event));
+        this.isConnecting = false;
+      },
+      onWebSocketClose: (event) => {
+        console.warn(
+          `STOMP [WS CLOSE]: Code=${event.code}, Reason=${event.reason}, Clean=${event.wasClean}`
+        );
+        this.isConnecting = false;
+      },
       onStompError: (frame) => {
-        console.error("STOMP ERROR:", frame.headers["message"]);
-        console.error("Additional details:", frame.body);
+        console.error("STOMP [STOMP ERROR]:", frame.headers["message"]);
+        console.error("STOMP [STOMP ERROR Body]:", frame.body);
+        this.isConnecting = false;
       },
     });
 
-    if (this.client) {
-      this.client.activate();
-    }
+    console.log("STOMP: Calling activate()...");
+    this.client.activate();
   }
 
   disconnect() {
@@ -57,16 +103,52 @@ class SocketService {
       this.client.deactivate();
       this.client = null;
       this.subscriptions.clear();
+      this.queuedSubscriptions = [];
+      this.isConnecting = false;
     }
   }
 
   subscribe(destination: string, callback: (message: IMessage) => void) {
     if (!this.client) {
-      console.warn("STOMP: Cannot subscribe, client is null");
+      console.warn(
+        "STOMP: Client is null, initiating connect and queuing:",
+        destination
+      );
+      this.queuedSubscriptions.push({ destination, callback });
+      this.connect();
       return;
     }
+
+    if (!this.client.connected) {
+      console.log(
+        `STOMP: Not connected yet, queuing subscription for: ${destination}`
+      );
+      this.queuedSubscriptions.push({ destination, callback });
+      // Trigger connect if not already connecting
+      if (!this.isConnecting) {
+        this.connect();
+      }
+      return;
+    }
+
+    return this._doSubscribe(destination, callback);
+  }
+
+  private _doSubscribe(
+    destination: string,
+    callback: (message: IMessage) => void
+  ) {
+    if (!this.client || !this.client.connected) return;
+
+    // Avoid duplicate subscriptions
+    if (this.subscriptions.has(destination)) {
+      console.log(`STOMP: Already subscribed to ${destination}, skipping.`);
+      return this.subscriptions.get(destination);
+    }
+
     const subscription = this.client.subscribe(destination, callback);
     this.subscriptions.set(destination, subscription);
+    console.log(`STOMP: Subscribed to ${destination}`);
     return subscription;
   }
 
@@ -76,11 +158,14 @@ class SocketService {
       subscription.unsubscribe();
       this.subscriptions.delete(destination);
     }
+    this.queuedSubscriptions = this.queuedSubscriptions.filter(
+      (s) => s.destination !== destination
+    );
   }
 
   send(destination: string, body: any) {
-    if (!this.client || !this.client.active) {
-      console.error("Cannot send message, STOMP client is not active");
+    if (!this.client || !this.client.connected) {
+      console.error("STOMP: Cannot send, not connected.");
       return;
     }
 
@@ -92,6 +177,10 @@ class SocketService {
 
   isActive() {
     return this.client?.active || false;
+  }
+
+  isConnected() {
+    return this.client?.connected || false;
   }
 }
 
