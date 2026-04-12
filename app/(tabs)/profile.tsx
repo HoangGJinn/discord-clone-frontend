@@ -1,4 +1,6 @@
 import { Avatar } from '@/components/Avatar';
+import { StatusSelector, UserStatus } from '@/components/StatusSelector';
+import apiClient from '@/api/client';
 import React, { useState } from 'react';
 import { 
   View, 
@@ -18,9 +20,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
 export default function ProfileScreen() {
-  const { user, logout } = useAuthStore();
+  const { user, logout, updateUser } = useAuthStore();
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
+
+  const handleStatusChange = async (status: UserStatus) => {
+    try {
+      await apiClient.put('/users/me/status', { status });
+      updateUser({ status });
+      Alert.alert('Success', 'Status updated successfully');
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to update status');
+    }
+  };
 
   const handleLogout = () => {
     Alert.alert(
@@ -90,7 +102,7 @@ export default function ProfileScreen() {
                 name={user.username} 
                 uri={user.avatar} 
                 size={100} 
-                status="ONLINE" 
+                status={user.status as any || 'ONLINE'}
                 style={styles.avatarShift}
             />
           </Animated.View>
@@ -119,6 +131,17 @@ export default function ProfileScreen() {
           entering={FadeInDown.delay(400).springify()}
           style={styles.card}
         >
+          {/* Status Section */}
+          <View style={styles.section}>
+            <ThemedText style={styles.sectionTitle}>STATUS</ThemedText>
+            <StatusSelector
+              currentStatus={user.status as UserStatus}
+              onSelectStatus={handleStatusChange}
+            />
+          </View>
+
+          <View style={styles.divider} />
+
           {/* Bio Section */}
           <View style={styles.section}>
             <ThemedText style={styles.sectionTitle}>ABOUT ME</ThemedText>

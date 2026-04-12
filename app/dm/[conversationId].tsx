@@ -19,6 +19,7 @@ import { ChatInput } from '@/components/ChatInput';
 import { EditMessageInput } from '@/components/EditMessageInput';
 import { MessageActionSheet } from '@/components/MessageActionSheet';
 import { EmojiPicker } from '@/components/EmojiPicker';
+import { VoiceCallUI } from '@/components/VoiceCallUI';
 import { useDMStore } from '@/store/useDMStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { DirectMessage, getOtherParticipant } from '@/types/dm';
@@ -79,6 +80,11 @@ export default function DMChatScreen() {
   const [editingMessage, setEditingMessage] = useState<DirectMessage | null>(null);
   const [emojiPickerVisible, setEmojiPickerVisible] = useState(false);
   const [emojiTargetMessageId, setEmojiTargetMessageId] = useState<string | null>(null);
+
+  // ── Day 5: Voice Call State ─────────────────────────────
+  const [voiceCallVisible, setVoiceCallVisible] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isDeafened, setIsDeafened] = useState(false);
 
   // ── Find the other participant from conversations list ─
   const conversation = conversations.find((c) => c.id === conversationId);
@@ -333,7 +339,7 @@ export default function DMChatScreen() {
             {/* Header Actions */}
             <View style={styles.headerActions}>
               <TouchableOpacity
-                onPress={() => alert("Voice Call feature coming soon!")}
+                onPress={() => setVoiceCallVisible(true)}
                 style={styles.actionBtn}
               >
                 <Ionicons
@@ -343,7 +349,7 @@ export default function DMChatScreen() {
                 />
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={() => alert("Video Call feature coming soon!")}
+                onPress={() => Alert.alert('Video Call', 'Video call feature coming soon!')}
                 style={styles.actionBtn}
               >
                 <Ionicons
@@ -353,7 +359,7 @@ export default function DMChatScreen() {
                 />
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={() => alert("Search feature coming soon!")}
+                onPress={() => Alert.alert('Search', 'Search feature coming soon!')}
                 style={styles.actionBtn}
               >
                 <Ionicons
@@ -459,6 +465,31 @@ export default function DMChatScreen() {
           setEmojiTargetMessageId(null);
         }}
         onSelectEmoji={handleEmojiSelected}
+      />
+
+      {/* Voice Call UI */}
+      <VoiceCallUI
+        visible={voiceCallVisible}
+        channelName={otherUser?.displayName || otherUser?.username || 'Voice Chat'}
+        participants={
+          otherUser
+            ? [
+                {
+                  id: otherUser.id,
+                  name: otherUser.displayName || otherUser.username,
+                  avatar: otherUser.avatar,
+                  isMuted,
+                  isDeafened,
+                  isSpeaking: false,
+                },
+              ]
+            : []
+        }
+        isMuted={isMuted}
+        isDeafened={isDeafened}
+        onToggleMute={() => setIsMuted(!isMuted)}
+        onToggleDeafen={() => setIsDeafened(!isDeafened)}
+        onLeave={() => setVoiceCallVisible(false)}
       />
     </SafeAreaView>
   );
