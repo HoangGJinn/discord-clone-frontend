@@ -31,6 +31,7 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401) {
       // Handle Unauthorized (e.g. clear token or redirect to login)
       await AsyncStorage.removeItem("auth_token");
+      await AsyncStorage.removeItem("auth_user");
     }
     return Promise.reject(error);
   },

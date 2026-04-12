@@ -38,10 +38,20 @@ export default function MessagesScreen() {
 
   // ── Filter conversations by search query ───────────────
   const filteredConversations = conversations.filter((conv) => {
+    // Robust check: Skip invalid or empty conversations
+    if (!conv) return false;
+    if (!conv.participantOne && !conv.participantTwo) return false;
+    
     if (!searchQuery.trim() || !user) return true;
-    const other = getOtherParticipant(conv, user.id);
-    const name = (other.displayName || other.username).toLowerCase();
-    return name.includes(searchQuery.toLowerCase());
+    
+    try {
+      const other = getOtherParticipant(conv, user.id);
+      const name = (other.displayName || other.username || '').toLowerCase();
+      return name.includes(searchQuery.toLowerCase());
+    } catch (err) {
+      console.warn('Error filtering conversation:', conv.id, err);
+      return false;
+    }
   });
 
   // ── Navigation handler ─────────────────────────────────
@@ -55,31 +65,40 @@ export default function MessagesScreen() {
   // ── Render item (pure function) ────────────────────────
   const renderItem = useCallback(
     ({ item, index }: { item: Conversation; index: number }) => {
-      if (!user) return null;
-      const other = getOtherParticipant(item, user.id);
+      if (!user || !item) return null;
+      
+      try {
+        const other = getOtherParticipant(item, user.id);
 
-      return (
-        <ConversationItem
-          participant={other}
-          lastMessageContent={item.lastMessage?.content}
-          lastMessageSender={
-            item.lastMessage
-              ? item.lastMessage.sender.id === user.id
-                ? 'You'
-                : item.lastMessage.sender.username
-              : undefined
-          }
-          lastMessageTime={item.lastMessage?.createdAt || item.updatedAt}
-          unreadCount={item.unreadCount}
-          onPress={() => handleOpenConversation(item.id)}
-          index={index}
-        />
-      );
+        return (
+          <ConversationItem
+            participant={other}
+            lastMessageContent={item.lastMessage?.content}
+            lastMessageSender={
+              item.lastMessage
+                ? String(item.lastMessage.sender?.id) === String(user.id)
+                  ? 'You'
+                  : item.lastMessage.sender?.username || 'User'
+                : undefined
+            }
+            lastMessageTime={item.lastMessage?.createdAt || item.updatedAt}
+            unreadCount={item.unreadCount}
+            onPress={() => handleOpenConversation(item.id)}
+            index={index}
+          />
+        );
+      } catch (err) {
+        console.error('Error rendering conversation item:', item.id, err);
+        return null;
+      }
     },
     [user, handleOpenConversation],
   );
 
-  const keyExtractor = useCallback((item: Conversation) => item.id, []);
+  const keyExtractor = useCallback(
+    (item: Conversation, index: number) => item?.id || `index-${index}`,
+    [],
+  );
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>

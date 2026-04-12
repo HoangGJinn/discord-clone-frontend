@@ -6,7 +6,7 @@ import {
   Modal,
   Pressable,
 } from 'react-native';
-import Animated, { SlideInDown, FadeIn } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { ThemedText } from './themed-text';
@@ -44,58 +44,56 @@ function MessageActionSheetInner({
       animationType="none"
       onRequestClose={onClose}
     >
-      <Pressable style={styles.overlay} onPress={onClose}>
-        <Animated.View
-          entering={SlideInDown.springify().damping(18)}
+      <Animated.View 
+        entering={FadeIn.duration(200)} 
+        exiting={FadeOut.duration(150)}
+        style={styles.overlay}
+      >
+        <Pressable style={styles.backdrop} onPress={onClose} />
+        <Animated.View 
+          entering={FadeIn.duration(250).delay(30)}
+          exiting={FadeOut.duration(150)}
           style={styles.sheet}
         >
           <Pressable onPress={(e) => e.stopPropagation()}>
-            {/* Handle bar */}
-            <View style={styles.handle} />
-
-            {/* Quick reaction row */}
+            {/* Quick reaction emojis */}
             {onQuickReact && (
-              <View style={styles.quickReactRow}>
-                {QUICK_REACTIONS.map((emoji) => (
-                  <TouchableOpacity
-                    key={emoji}
-                    style={styles.quickReactBtn}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      onQuickReact(emoji);
-                      onClose();
-                    }}
-                    activeOpacity={0.6}
-                  >
-                    <ThemedText style={styles.quickReactEmoji}>
-                      {emoji}
-                    </ThemedText>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              <>
+                <View style={styles.emojiRow}>
+                  {QUICK_REACTIONS.map((emoji) => (
+                    <TouchableOpacity
+                      key={emoji}
+                      style={styles.emojiBtn}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        onQuickReact(emoji);
+                        onClose();
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <ThemedText style={styles.emojiText}>{emoji}</ThemedText>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <View style={styles.divider} />
+              </>
             )}
 
-            {/* Divider */}
-            <View style={styles.divider} />
-
             {/* Action items */}
-            {actions.map((action, index) => (
+            {actions.map((action) => (
               <TouchableOpacity
                 key={action.id}
-                style={[
-                  styles.actionItem,
-                  index === actions.length - 1 && styles.lastItem,
-                ]}
+                style={styles.actionItem}
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   action.onPress();
                   onClose();
                 }}
-                activeOpacity={0.6}
+                activeOpacity={0.7}
               >
                 <Ionicons
                   name={action.icon}
-                  size={20}
+                  size={18}
                   color={action.color || DiscordColors.textSecondary}
                   style={styles.actionIcon}
                 />
@@ -111,7 +109,7 @@ function MessageActionSheetInner({
             ))}
           </Pressable>
         </Animated.View>
-      </Pressable>
+      </Animated.View>
     </Modal>
   );
 }
@@ -122,61 +120,52 @@ export const MessageActionSheet = memo(MessageActionSheetInner);
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
   },
   sheet: {
     backgroundColor: DiscordColors.secondaryBackground,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingBottom: 34, // Safe area
+    borderRadius: 6,
+    minWidth: 220,
+    overflow: 'hidden',
   },
-  handle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: DiscordColors.textMuted,
-    alignSelf: 'center',
-    marginTop: 10,
-    marginBottom: 10,
-  },
-  quickReactRow: {
+  emojiRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
   },
-  quickReactBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  emojiBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: DiscordColors.tertiaryBackground,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  quickReactEmoji: {
-    fontSize: 24,
+  emojiText: {
+    fontSize: 20,
   },
   divider: {
     height: 1,
     backgroundColor: DiscordColors.divider,
-    marginHorizontal: Spacing.md,
   },
   actionItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: Spacing.lg,
-  },
-  lastItem: {
-    marginBottom: 0,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
   },
   actionIcon: {
-    marginRight: Spacing.md,
-    width: 24,
+    marginRight: 10,
+    width: 20,
   },
   actionLabel: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '500',
     color: DiscordColors.textPrimary,
   },
