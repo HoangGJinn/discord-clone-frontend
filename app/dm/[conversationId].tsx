@@ -37,8 +37,8 @@ function useDMWebSocket(conversationId: string) {
 
     const subscription = socketService.subscribe(destination, (frame) => {
       try {
-        const message: DirectMessage = JSON.parse(frame.body);
-        addRealtimeMessage(message);
+        const messageData = JSON.parse(frame.body);
+        addRealtimeMessage(messageData);
       } catch (err) {
         console.error('Failed to parse DM WebSocket message:', err);
       }

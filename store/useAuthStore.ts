@@ -10,6 +10,7 @@ import authService, {
 } from "@/services/authService";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
+import socketService from "@/services/socketService";
 
 const AUTH_TOKEN_KEY = "auth_token";
 const AUTH_USER_KEY = "auth_user";
@@ -107,6 +108,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await AsyncStorage.setItem(AUTH_TOKEN_KEY, token);
     await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
     set({ user, token, isAuthenticated: true, isLoading: false, hasInitialized: true });
+    socketService.connect();
   },
 
   loginWithCredentials: async (payload) => {
@@ -136,6 +138,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         isLoading: false,
         hasInitialized: true,
       });
+      socketService.connect();
     } catch (error) {
       await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
       await AsyncStorage.removeItem(AUTH_USER_KEY);
@@ -194,6 +197,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
     await AsyncStorage.removeItem(AUTH_USER_KEY);
     set({ user: null, token: null, isAuthenticated: false, isLoading: false, hasInitialized: true });
+    socketService.disconnect();
   },
 
   updateUser: (userData) => {
@@ -261,6 +265,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           const latestUser = mapProfileToUser(profileResponse.data);
           await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(latestUser));
           set({ user: latestUser, isAuthenticated: true, isLoading: false, hasInitialized: true });
+          socketService.connect();
         } catch (error) {
           const statusCode =
             typeof error === "object" && error !== null

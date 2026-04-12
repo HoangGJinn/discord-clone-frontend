@@ -61,7 +61,19 @@ export function getOtherParticipant(
   conversation: Conversation,
   currentUserId: string,
 ): User {
-  return conversation.participantOne.id === currentUserId
-    ? conversation.participantTwo
-    : conversation.participantOne;
+  if (!conversation) {
+    return { id: '', username: 'Unknown', email: '', role: [] };
+  }
+
+  const p1 = conversation.participantOne;
+  const p2 = conversation.participantTwo;
+
+  // Fallback if one of the participants is missing from the object
+  if (!p1 || !p2) {
+    if (p1 && String(p1.id) !== String(currentUserId)) return p1;
+    if (p2 && String(p2.id) !== String(currentUserId)) return p2;
+    return p1 || p2 || { id: '', username: 'Deleted User', email: '', role: [] };
+  }
+
+  return String(p1.id) === String(currentUserId) ? p2 : p1;
 }

@@ -1,9 +1,18 @@
 import apiClient from "@/api/client";
+import { useAuthStore } from "@/store/useAuthStore";
 import {
   Conversation,
   DirectMessage,
   SendDirectMessagePayload,
 } from "@/types/dm";
+import {
+  transformConversation,
+  transformConversationArray,
+  transformDirectMessage,
+  transformMessageArray,
+  BackendConversationResponse,
+  BackendDirectMessageResponse,
+} from "@/utils/dmTransformers";
 import { create } from "zustand";
 
 // ─── State & Actions Interfaces ───────────────────────────────
@@ -62,7 +71,10 @@ export const useDMStore = create<DMStore>((set, get) => ({
 
     try {
       const response = await apiClient.get("/direct-messages/conversations");
-      set({ conversations: response.data, isLoadingConversations: false });
+      const conversations = transformConversationArray(
+        response.data as BackendConversationResponse[]
+      );
+      set({ conversations, isLoadingConversations: false });
     } catch (err: any) {
       set({
         error: err.response?.data?.message || err.message,
@@ -78,7 +90,9 @@ export const useDMStore = create<DMStore>((set, get) => ({
       const response = await apiClient.get(
         `/direct-messages/conversation/by-user/${friendId}`,
       );
-      const conversation: Conversation = response.data;
+      const conversation = transformConversation(
+        response.data as BackendConversationResponse
+      );
 
       // Upsert into conversations list
       set((state) => {
@@ -116,9 +130,16 @@ export const useDMStore = create<DMStore>((set, get) => ({
 
       const data = response.data;
       // Handle both paginated and array responses
-      const newMessages: DirectMessage[] = Array.isArray(data)
-        ? data
-        : (data.content ?? []);
+      let newMessages: DirectMessage[];
+
+      if (Array.isArray(data)) {
+        newMessages = transformMessageArray(data as BackendDirectMessageResponse[]);
+      } else if (data.content) {
+        newMessages = transformMessageArray(data.content as BackendDirectMessageResponse[]);
+      } else {
+        newMessages = [];
+      }
+
       const isLastPage = Array.isArray(data) ? true : (data.last ?? true);
 
       set({
@@ -152,8 +173,45 @@ export const useDMStore = create<DMStore>((set, get) => ({
     set({ isSending: true, error: null });
 
     try {
-      const response = await apiClient.post("/direct-messages", payload);
-      const sentMessage: DirectMessage = response.data;
+      // Get conversation to find receiverId
+      const state = get();
+      const conversation = state.conversations.find(
+        (c) => c.id === payload.conversationId
+      );
+
+      let receiverId: string;
+      if (conversation) {
+        // Determine the receiver from conversation participants
+        const currentUserId = useAuthStore.getState().user?.id;
+        receiverId =
+          String(conversation.participantOne.id) === String(currentUserId)
+            ? String(conversation.participantTwo.id)
+            : String(conversation.participantOne.id);
+      } else {
+        // Fallback: fetch conversation details
+        try {
+          const convResponse = await apiClient.get(
+            `/direct-messages/conversation/${payload.conversationId}`
+          );
+          const convData = convResponse.data as BackendConversationResponse;
+          // If we can't get receiver, we'll try without it
+          receiverId = String(convData.user1Id);
+        } catch {
+          receiverId = "";
+        }
+      }
+
+      // Send message with receiverId as required by backend
+      const sendPayload: any = {
+        conversationId: payload.conversationId,
+        content: payload.content,
+        ...(receiverId ? { receiverId: parseInt(receiverId, 10) } : {}),
+      };
+
+      const response = await apiClient.post("/direct-messages", sendPayload);
+      const sentMessage = transformDirectMessage(
+        response.data as BackendDirectMessageResponse
+      );
 
       // Prepend to messages (newest first in inverted list)
       set((state) => ({
@@ -173,19 +231,29 @@ export const useDMStore = create<DMStore>((set, get) => ({
 
   // ── Real-time Actions ────────────────────────────────────
 
-  addRealtimeMessage: (message: DirectMessage) => {
+  addRealtimeMessage: (message: DirectMessage | BackendDirectMessageResponse) => {
+    // Check if message needs transformation (backend format has senderId as number)
+    const needsTransform =
+      "senderId" in message &&
+      typeof (message as BackendDirectMessageResponse).senderId === "number" &&
+      !("sender" in message && message.sender && "username" in message.sender);
+
+    const transformedMessage = needsTransform
+      ? transformDirectMessage(message as BackendDirectMessageResponse)
+      : (message as DirectMessage);
+
     set((state) => {
       // Deduplicate: skip if message already exists
-      const exists = state.messages.some((m) => m.id === message.id);
+      const exists = state.messages.some((m) => m.id === transformedMessage.id);
       if (exists) return state;
 
       return {
-        messages: [message, ...state.messages],
+        messages: [transformedMessage, ...state.messages],
       };
     });
 
     // Always update conversation preview for real-time messages
-    get().updateConversationPreview(message.conversationId, message);
+    get().updateConversationPreview(transformedMessage.conversationId, transformedMessage);
   },
 
   updateConversationPreview: (
