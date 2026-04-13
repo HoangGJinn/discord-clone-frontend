@@ -38,7 +38,7 @@ export interface Attachment {
 export interface Reaction {
   emoji: string;
   count: number;
-  users: string[]; // user IDs
+  users?: string[]; // user IDs may be omitted by backend payload
 }
 
 // ─── Send Message Payload ────────────────────────────────────

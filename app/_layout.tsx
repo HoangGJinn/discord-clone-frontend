@@ -73,6 +73,8 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="dm/[conversationId]" options={{ headerShown: false }} />
         <Stack.Screen name="channel/[channelId]" options={{ headerShown: false }} />
+        <Stack.Screen name="voice/[channelId]" options={{ headerShown: false }} />
+        <Stack.Screen name="server/[serverId]/members" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
       <StatusBar style="auto" />

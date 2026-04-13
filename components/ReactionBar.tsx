@@ -1,9 +1,9 @@
 import React, { memo } from 'react';
-import { View, TouchableOpacity, StyleSheet } from 'react-native';
+import { TouchableOpacity, StyleSheet } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { ThemedText } from './themed-text';
-import { DiscordColors, Spacing } from '@/constants/theme';
+import { DiscordColors } from '@/constants/theme';
 import { Reaction } from '@/types/dm';
 
 // ─── Props ───────────────────────────────────────────────────
@@ -23,13 +23,40 @@ function ReactionBarInner({
 }: ReactionBarProps) {
   if (!reactions || reactions.length === 0) return null;
 
+  const normalizedReactions = reactions.reduce<Reaction[]>((acc, reaction) => {
+    const users = Array.isArray(reaction.users) ? reaction.users : [];
+    const existingIndex = acc.findIndex((item) => item.emoji === reaction.emoji);
+
+    if (existingIndex === -1) {
+      acc.push({
+        ...reaction,
+        users,
+        count: typeof reaction.count === 'number' ? reaction.count : users.length,
+      });
+      return acc;
+    }
+
+    const existing = acc[existingIndex];
+    const existingUsers = Array.isArray(existing.users) ? existing.users : [];
+    const mergedUsers = Array.from(new Set([...existingUsers, ...users]));
+    acc[existingIndex] = {
+      ...existing,
+      users: mergedUsers,
+      count: mergedUsers.length,
+    };
+    return acc;
+  }, []);
+
   return (
     <Animated.View entering={FadeIn.duration(200)} style={styles.container}>
-      {reactions.map((reaction) => {
-        const isActive = reaction.users.includes(currentUserId);
+      {normalizedReactions.map((reaction) => {
+        const users = Array.isArray(reaction.users) ? reaction.users : [];
+        const isActive = users.includes(currentUserId);
+        const count = typeof reaction.count === 'number' ? reaction.count : users.length;
+
         return (
           <TouchableOpacity
-            key={reaction.emoji}
+            key={`${reaction.emoji}-${count}`}
             style={[styles.chip, isActive && styles.chipActive]}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -41,7 +68,7 @@ function ReactionBarInner({
             <ThemedText
               style={[styles.count, isActive && styles.countActive]}
             >
-              {reaction.count}
+              {count}
             </ThemedText>
           </TouchableOpacity>
         );

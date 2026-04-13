@@ -21,7 +21,7 @@ interface ChannelChatState {
 interface ChannelChatActions {
   fetchMessages: (channelId: string, page?: number) => Promise<void>;
   loadMoreMessages: () => Promise<void>;
-  sendMessage: (channelId: string, payload: SendChannelMessagePayload) => void;
+  sendMessage: (channelId: string, payload: SendChannelMessagePayload) => Promise<boolean>;
   addRealtimeMessage: (message: ChannelMessage) => void;
   setActiveChannel: (channelId: string | null) => void;
   clearMessages: () => void;
@@ -116,23 +116,20 @@ export const useChannelChatStore = create<ChannelChatStore>((set, get) => ({
     await get().fetchMessages(activeChannelId, currentPage + 1);
   },
 
-  sendMessage: (channelId: string, payload: SendChannelMessagePayload) => {
-    if (!socketService.isActive()) {
-      set({ error: "No connection to server." });
-      return;
-    }
-
+  sendMessage: async (channelId: string, payload: SendChannelMessagePayload) => {
     set({ isSending: true, error: null });
 
     try {
       // Broadcast via WebSocket
-      socketService.send(`/app/chat/${channelId}`, payload);
+      const sent = await socketService.send(`/app/chat/${channelId}`, payload);
       set({ isSending: false });
+      return sent;
     } catch (err: any) {
       set({
         error: err.message,
         isSending: false,
       });
+      return false;
     }
   },
 
