@@ -330,7 +330,7 @@ function VoiceCallUIInner({
   // ── Render: Connecting / Ringing (caller side) ──────────────
   if (visible && (isConnecting || (isRinging && isCaller))) {
     return (
-      <Modal visible={visible} transparent animationType="fade">
+      <Modal visible={true} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <StatusBar barStyle="light-content" />
           <Animated.View entering={FadeIn.duration(300)} style={styles.connectingContainer}>
@@ -358,7 +358,7 @@ function VoiceCallUIInner({
   // ── Render: Incoming Call (receiver side) ─────────────────
   if (hasIncomingCall) {
     return (
-      <Modal visible={visible} transparent animationType="fade">
+      <Modal visible={true} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <StatusBar barStyle="light-content" />
           <Animated.View entering={FadeIn.duration(300)} style={styles.incomingContainer}>
@@ -400,8 +400,9 @@ function VoiceCallUIInner({
   }
 
   // ── Render: Active Call ───────────────────────────────────
+  // Nếu isInCall = true thì buộc hiển thị (cho receiver), ngược lại theo visible
   return (
-    <Modal visible={visible} transparent animationType="none" onRequestClose={handleLeave}>
+    <Modal visible={visible || isInCall} transparent animationType="none" onRequestClose={handleLeave}>
       <View style={styles.modalBackdrop}>
         <StatusBar barStyle="light-content" />
         <Animated.View entering={FadeIn.duration(300)} exiting={FadeOut.duration(200)} style={styles.container}>

@@ -1,8 +1,4 @@
-import axios from 'axios';
-
-// Lấy URL từ env, bỏ suffix /api vì service tự thêm path
-const envUrl = process.env.EXPO_PUBLIC_API_URL || 'http://10.0.2.2:8085/api';
-const API_BASE_URL = envUrl.replace(/\/api$/, '');
+import apiClient from '@/api/client';
 
 export interface DMCallState {
   callId: string;
@@ -31,14 +27,14 @@ export interface DMCallStateResponse {
 }
 
 class DMCallService {
-  private baseUrl = `${API_BASE_URL}/api/dm/call`;
+  private basePath = '/dm/call';
 
   /**
    * Lấy trạng thái cuộc gọi hiện tại
    */
   async getCallStatus(conversationId: string): Promise<DMCallStateResponse> {
     try {
-      const response = await axios.get(`${this.baseUrl}/status`, {
+      const response = await apiClient.get(`${this.basePath}/status`, {
         params: { conversationId },
       });
       return response.data;
@@ -53,7 +49,7 @@ class DMCallService {
    */
   async startCall(conversationId: string, callerId: string): Promise<DMCallState | null> {
     try {
-      const response = await axios.post(`${this.baseUrl}/start`, {
+      const response = await apiClient.post(`${this.basePath}/start`, {
         conversationId,
         callerId,
       });
@@ -69,7 +65,7 @@ class DMCallService {
    */
   async acceptCall(conversationId: string, userId: string): Promise<DMCallState | null> {
     try {
-      const response = await axios.post(`${this.baseUrl}/accept`, {
+      const response = await apiClient.post(`${this.basePath}/accept`, {
         conversationId,
         userId,
       });
@@ -85,7 +81,7 @@ class DMCallService {
    */
   async declineCall(conversationId: string, userId: string): Promise<DMCallState | null> {
     try {
-      const response = await axios.post(`${this.baseUrl}/decline`, {
+      const response = await apiClient.post(`${this.basePath}/decline`, {
         conversationId,
         userId,
       });
@@ -101,7 +97,7 @@ class DMCallService {
    */
   async endCall(conversationId: string, userId: string): Promise<DMCallState | null> {
     try {
-      const response = await axios.post(`${this.baseUrl}/end`, {
+      const response = await apiClient.post(`${this.basePath}/end`, {
         conversationId,
         userId,
       });
@@ -122,7 +118,7 @@ class DMCallService {
     isDeafened: boolean
   ): Promise<DMCallState | null> {
     try {
-      const response = await axios.post(`${this.baseUrl}/state`, {
+      const response = await apiClient.post(`${this.basePath}/state`, {
         conversationId,
         userId,
         isMuted,
@@ -140,7 +136,7 @@ class DMCallService {
    */
   async getToken(conversationId: string, userId: string): Promise<AgoraTokenResponse | null> {
     try {
-      const response = await axios.get(`${this.baseUrl}/token`, {
+      const response = await apiClient.get(`${this.basePath}/token`, {
         params: { conversationId, userId },
       });
       return response.data;
