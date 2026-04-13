@@ -1,188 +1,148 @@
-import { Client, IFrame, IMessage } from "@stomp/stompjs";
-import { useAuthStore } from "../store/useAuthStore";
+import { Client, IMessage, StompSubscription } from '@stomp/stompjs';
+import { getAuthToken } from './authSession';
 
 // Polyfills for TextEncoder/Decoder required by STOMPjs v7
-import { TextEncoder, TextDecoder } from "text-encoding";
+import { TextEncoder, TextDecoder } from 'text-encoding';
 
-if (typeof global.TextEncoder === "undefined") {
+if (typeof global.TextEncoder === 'undefined') {
   (global as any).TextEncoder = TextEncoder;
 }
-if (typeof global.TextDecoder === "undefined") {
+if (typeof global.TextDecoder === 'undefined') {
   (global as any).TextDecoder = TextDecoder;
 }
 
-const SOCKET_URL =
-  process.env.EXPO_PUBLIC_SOCKET_URL || "ws://10.0.2.2:8085/ws-native";
+const normalizeSocketUrl = (url: string): string => {
+  const trimmed = url.trim();
+  if (trimmed.endsWith('/ws')) {
+    return `${trimmed}-native`;
+  }
+  return trimmed;
+};
+
+const RAW_SOCKET_URL =
+  process.env.EXPO_PUBLIC_SOCKET_URL || 'ws://10.0.2.2:8085/ws-native';
+const SOCKET_URL = normalizeSocketUrl(RAW_SOCKET_URL);
 
 class SocketService {
   private client: Client | null = null;
-  private subscriptions: Map<string, any> = new Map();
-  private queuedSubscriptions: Array<{
-    destination: string;
-    callback: (message: IMessage) => void;
-  }> = [];
-  private isConnecting: boolean = false;
+  private subscriptions: Map<string, StompSubscription> = new Map();
+  private connectPromise: Promise<void> | null = null;
 
-  connect(onConnectCb?: (frame: IFrame) => void, onDisconnectCb?: () => void) {
-    if (this.client?.active) {
-      console.log("STOMP: Already active, skipping connect.");
-      return;
-    }
+  async connect(): Promise<void> {
+    if (this.client?.connected) return;
+    if (this.connectPromise) return this.connectPromise;
 
-    if (this.isConnecting) {
-      console.log("STOMP: Already connecting, skipping duplicate connect call.");
-      return;
-    }
-
-    const token = useAuthStore.getState().token;
+    const token = getAuthToken();
     if (!token) {
-      console.warn("STOMP: No auth token available, cannot connect.");
-      return;
+      throw new Error('STOMP: No auth token available, cannot connect.');
     }
 
-    this.isConnecting = true;
-    console.log("=== STOMP: Attempting to connect ===");
-    console.log("STOMP: URL =", SOCKET_URL);
-    console.log("STOMP: Token =", token.substring(0, 20) + "...");
+    this.connectPromise = new Promise<void>((resolve, reject) => {
+      this.client = new Client({
+        brokerURL: SOCKET_URL,
+        connectHeaders: token ? { Authorization: `Bearer ${token}` } : {},
+        reconnectDelay: 5000,
+        forceBinaryWSFrames: true,
+        appendMissingNULLOnIncoming: true,
+        debug: (msg) => {
+          console.log('STOMP RAW:', msg);
+        },
+        onConnect: () => {
+          console.log('STOMP: Connected successfully');
+          this.connectPromise = null;
+          resolve();
+        },
+        onStompError: (frame) => {
+          console.error('STOMP [STOMP ERROR]:', frame.headers['message']);
+          console.error('STOMP [STOMP ERROR Body]:', frame.body);
+          this.connectPromise = null;
+          reject(new Error(frame.headers['message'] || 'STOMP connection failed'));
+        },
+        onWebSocketError: (event) => {
+          console.error('STOMP [WS ERROR]:', event);
+          this.connectPromise = null;
+          reject(new Error('WebSocket connection error'));
+        },
+      });
 
-    this.client = new Client({
-      brokerURL: SOCKET_URL,
-      connectHeaders: {
-        Authorization: `Bearer ${token}`,
-      },
-      debug: (msg) => {
-        // Log ALL STOMP messages for debugging
-        console.log("STOMP RAW:", msg);
-      },
-      reconnectDelay: 5000,
-      heartbeatIncoming: 10000,
-      heartbeatOutgoing: 10000,
-      onConnect: (frame) => {
-        console.log("=== STOMP: Connected successfully! ===");
-        this.isConnecting = false;
-
-        // Process queued subscriptions
-        this.queuedSubscriptions.forEach((sub) => {
-          console.log(
-            `STOMP: Subscribing to queued destination: ${sub.destination}`
-          );
-          this._doSubscribe(sub.destination, sub.callback);
-        });
-        this.queuedSubscriptions = [];
-
-        if (onConnectCb) onConnectCb(frame);
-      },
-      onDisconnect: () => {
-        console.log("STOMP: Disconnected.");
-        this.isConnecting = false;
-        if (onDisconnectCb) onDisconnectCb();
-      },
-      onWebSocketError: (event) => {
-        console.error("STOMP [WS ERROR]:", JSON.stringify(event));
-        this.isConnecting = false;
-      },
-      onWebSocketClose: (event) => {
-        console.warn(
-          `STOMP [WS CLOSE]: Code=${event.code}, Reason=${event.reason}, Clean=${event.wasClean}`
-        );
-        this.isConnecting = false;
-      },
-      onStompError: (frame) => {
-        console.error("STOMP [STOMP ERROR]:", frame.headers["message"]);
-        console.error("STOMP [STOMP ERROR Body]:", frame.body);
-        this.isConnecting = false;
-      },
+      this.client.activate();
     });
 
-    console.log("STOMP: Calling activate()...");
-    this.client.activate();
+    return this.connectPromise;
   }
 
-  disconnect() {
-    if (this.client) {
-      this.client.deactivate();
-      this.client = null;
-      this.subscriptions.clear();
-      this.queuedSubscriptions = [];
-      this.isConnecting = false;
-    }
-  }
+  async subscribe<T = any>(destination: string, callback: (message: T) => void): Promise<void> {
+    await this.connect();
 
-  subscribe(destination: string, callback: (message: IMessage) => void) {
-    if (!this.client) {
-      console.warn(
-        "STOMP: Client is null, initiating connect and queuing:",
-        destination
-      );
-      this.queuedSubscriptions.push({ destination, callback });
-      this.connect();
-      return;
-    }
-
-    if (!this.client.connected) {
-      console.log(
-        `STOMP: Not connected yet, queuing subscription for: ${destination}`
-      );
-      this.queuedSubscriptions.push({ destination, callback });
-      // Trigger connect if not already connecting
-      if (!this.isConnecting) {
-        this.connect();
-      }
-      return;
-    }
-
-    return this._doSubscribe(destination, callback);
-  }
-
-  private _doSubscribe(
-    destination: string,
-    callback: (message: IMessage) => void
-  ) {
-    if (!this.client || !this.client.connected) return;
-
-    // Avoid duplicate subscriptions
     if (this.subscriptions.has(destination)) {
-      console.log(`STOMP: Already subscribed to ${destination}, skipping.`);
-      return this.subscriptions.get(destination);
+      return;
     }
 
-    const subscription = this.client.subscribe(destination, callback);
+    const subscription = this.client!.subscribe(destination, (frame: IMessage) => {
+      try {
+        const parsed: T = JSON.parse(frame.body);
+        callback(parsed);
+      } catch (error) {
+        console.error('Error parsing socket message:', error);
+      }
+    });
+
     this.subscriptions.set(destination, subscription);
-    console.log(`STOMP: Subscribed to ${destination}`);
-    return subscription;
   }
 
-  unsubscribe(destination: string) {
+  unsubscribe(destination: string): void {
     const subscription = this.subscriptions.get(destination);
     if (subscription) {
       subscription.unsubscribe();
       this.subscriptions.delete(destination);
     }
-    this.queuedSubscriptions = this.queuedSubscriptions.filter(
-      (s) => s.destination !== destination
-    );
   }
 
-  send(destination: string, body: any) {
-    if (!this.client || !this.client.connected) {
-      console.error("STOMP: Cannot send, not connected.");
-      return;
+  async send(destination: string, body: object): Promise<boolean> {
+    try {
+      await this.connect();
+    } catch (error) {
+      console.error('Error connecting before send:', error);
+      return false;
     }
 
-    this.client.publish({
-      destination,
-      body: JSON.stringify(body),
-    });
+    if (!this.client?.connected) {
+      return false;
+    }
+
+    try {
+      this.client.publish({
+        destination,
+        body: JSON.stringify(body),
+      });
+      return true;
+    } catch (error) {
+      console.error('Error sending socket message:', error);
+      return false;
+    }
   }
 
-  isActive() {
+  disconnect(): void {
+    this.subscriptions.forEach((subscription) => subscription.unsubscribe());
+    this.subscriptions.clear();
+
+    if (this.client) {
+      this.client.deactivate();
+      this.client = null;
+    }
+
+    this.connectPromise = null;
+  }
+
+  isActive(): boolean {
     return this.client?.active || false;
   }
 
-  isConnected() {
+  isConnected(): boolean {
     return this.client?.connected || false;
   }
 }
 
 const socketService = new SocketService();
 export default socketService;
+

@@ -11,6 +11,7 @@ import authService, {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
 import socketService from "@/services/socketService";
+import { setAuthToken } from "@/services/authSession";
 
 const AUTH_TOKEN_KEY = "auth_token";
 const AUTH_USER_KEY = "auth_user";
@@ -108,6 +109,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await AsyncStorage.setItem(AUTH_TOKEN_KEY, token);
     await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
     set({ user, token, isAuthenticated: true, isLoading: false, hasInitialized: true });
+    setAuthToken(token);
     socketService.connect();
   },
 
@@ -138,6 +140,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         isLoading: false,
         hasInitialized: true,
       });
+      setAuthToken(loginData.token);
       socketService.connect();
     } catch (error) {
       await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
@@ -149,6 +152,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         isLoading: false,
         hasInitialized: true,
       });
+      setAuthToken(null);
       throw new Error(extractErrorMessage(error, "Đăng nhập thất bại"));
     }
   },
@@ -197,6 +201,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
     await AsyncStorage.removeItem(AUTH_USER_KEY);
     set({ user: null, token: null, isAuthenticated: false, isLoading: false, hasInitialized: true });
+    setAuthToken(null);
     socketService.disconnect();
   },
 
@@ -251,11 +256,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             isLoading: false,
             hasInitialized: true,
           });
+          setAuthToken(null);
           return;
         }
 
         const storedUser = userStr ? (JSON.parse(userStr) as User) : null;
         set({ token, user: storedUser, isAuthenticated: true });
+        setAuthToken(token);
 
         try {
           const profileResponse = await withTimeout(
@@ -282,6 +289,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
               isLoading: false,
               hasInitialized: true,
             });
+            setAuthToken(null);
             return;
           }
           set({ isLoading: false, hasInitialized: true });
@@ -295,6 +303,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           isLoading: false,
           hasInitialized: true,
         });
+        setAuthToken(null);
       } finally {
         initializePromise = null;
       }
@@ -303,3 +312,4 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await initializePromise;
   },
 }));
+

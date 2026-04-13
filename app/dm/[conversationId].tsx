@@ -35,10 +35,9 @@ function useDMWebSocket(conversationId: string) {
 
     const destination = `/topic/dm/${conversationId}`;
 
-    const subscription = socketService.subscribe(destination, (frame) => {
+    void socketService.subscribe(destination, (message) => {
       try {
-        const messageData = JSON.parse(frame.body);
-        addRealtimeMessage(messageData);
+        addRealtimeMessage(message as DirectMessage);
       } catch (err) {
         console.error('Failed to parse DM WebSocket message:', err);
       }
@@ -187,7 +186,7 @@ export default function DMChatScreen() {
       if (!msg || !user) return;
 
       const existing = msg.reactions?.find((r) => r.emoji === emoji);
-      if (existing?.users.includes(user.id)) {
+      if (existing?.users?.includes(user.id)) {
         removeReaction(messageId, emoji);
       } else {
         addReaction(messageId, emoji);
