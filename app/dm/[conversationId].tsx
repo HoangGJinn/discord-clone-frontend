@@ -83,8 +83,6 @@ export default function DMChatScreen() {
 
   // ── Day 5: Voice Call State ─────────────────────────────
   const [voiceCallVisible, setVoiceCallVisible] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isDeafened, setIsDeafened] = useState(false);
 
   // ── Find the other participant from conversations list ─
   const conversation = conversations.find((c) => c.id === conversationId);
@@ -92,6 +90,28 @@ export default function DMChatScreen() {
     conversation && user
       ? getOtherParticipant(conversation, user.id)
       : null;
+
+  // ── Voice Call Handlers ─────────────────────────────────
+  const handleSendMessageInCall = useCallback(() => {
+    // Đóng call UI, quay lại chat (cuộc gọi vẫn tiếp tục ngầm)
+    setVoiceCallVisible(false);
+  }, []);
+
+  const handleLeaveCall = useCallback(() => {
+    console.log('[VoiceCall] Leaving call');
+    setVoiceCallVisible(false);
+  }, []);
+
+  const handleMinimizeCall = useCallback(() => {
+    setVoiceCallVisible(false);
+    console.log('[VoiceCall] Minimized');
+  }, []);
+
+  const handleStartCall = useCallback(() => {
+    setVoiceCallVisible(true);
+    console.log('[VoiceCall] Starting call with:', otherUser?.username);
+  }, [otherUser]);
+
 
   // ── Load messages on mount ─────────────────────────────
   useEffect(() => {
@@ -339,7 +359,7 @@ export default function DMChatScreen() {
             {/* Header Actions */}
             <View style={styles.headerActions}>
               <TouchableOpacity
-                onPress={() => setVoiceCallVisible(true)}
+                onPress={handleStartCall}
                 style={styles.actionBtn}
               >
                 <Ionicons
@@ -470,26 +490,13 @@ export default function DMChatScreen() {
       {/* Voice Call UI */}
       <VoiceCallUI
         visible={voiceCallVisible}
-        channelName={otherUser?.displayName || otherUser?.username || 'Voice Chat'}
-        participants={
-          otherUser
-            ? [
-                {
-                  id: otherUser.id,
-                  name: otherUser.displayName || otherUser.username,
-                  avatar: otherUser.avatar,
-                  isMuted,
-                  isDeafened,
-                  isSpeaking: false,
-                },
-              ]
-            : []
-        }
-        isMuted={isMuted}
-        isDeafened={isDeafened}
-        onToggleMute={() => setIsMuted(!isMuted)}
-        onToggleDeafen={() => setIsDeafened(!isDeafened)}
-        onLeave={() => setVoiceCallVisible(false)}
+        conversationId={conversationId || ''}
+        remoteUserName={otherUser?.displayName || otherUser?.username || 'Unknown'}
+        remoteUserAvatar={otherUser?.avatar}
+        remoteUserId={otherUser?.id}
+        onSendMessage={handleSendMessageInCall}
+        onLeave={handleLeaveCall}
+        onMinimize={handleMinimizeCall}
       />
     </SafeAreaView>
   );

@@ -1,4 +1,4 @@
-import React, { memo, useState, useEffect } from 'react';
+import React, { memo, useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -6,49 +6,43 @@ import {
   Modal,
   Dimensions,
   StatusBar,
+  Pressable,
+  Image,
+  Text,
 } from 'react-native';
 import Animated, {
   FadeIn,
   FadeOut,
   useSharedValue,
   useAnimatedStyle,
+  withSpring,
+  withTiming,
   withRepeat,
   withSequence,
-  withTiming,
+  withDelay,
   Easing,
+  interpolateColor,
+  runOnJS,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { ThemedText } from './themed-text';
 import { Avatar } from './Avatar';
 import { DiscordColors, Spacing } from '@/constants/theme';
+import { useAuthStore } from '@/store/useAuthStore';
+import { useDMCall } from '@/hooks/useDMCall';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-interface Participant {
-  id: string;
-  name: string;
-  avatar?: string;
-  isMuted: boolean;
-  isDeafened: boolean;
-  isSpeaking?: boolean;
-  isVideoEnabled?: boolean;
-}
-
 interface VoiceCallUIProps {
   visible: boolean;
-  channelName: string;
-  participants: Participant[];
-  isMuted: boolean;
-  isDeafened: boolean;
-  isSpeaking?: boolean;
-  onToggleMute: () => void;
-  onToggleDeafen: () => void;
-  onToggleVideo?: () => void;
+  conversationId: string;
+  remoteUserName?: string;
+  remoteUserAvatar?: string;
+  remoteUserId?: string;
   onSendMessage?: () => void;
-  onLeave: () => void;
-  duration?: number;
-  currentUserName?: string;
+  onLeave?: () => void;
+  onMinimize?: () => void;
 }
 
 function formatDuration(seconds: number): string {
@@ -61,242 +55,459 @@ function formatDuration(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
+// ── Animated control button ──────────────────────────────────
+interface ControlButtonProps {
+  icon: string;
+  iconOff?: string;
+  label: string;
+  isActive: boolean;
+  activeColor?: string;
+  onPress: () => void;
+  disabled?: boolean;
+}
+
+const ControlButton = memo(function ControlButton({
+  icon,
+  iconOff,
+  label,
+  isActive,
+  activeColor = '#fff',
+  onPress,
+  disabled = false,
+}: ControlButtonProps) {
+  const scale = useSharedValue(1);
+  const bgColor = useSharedValue(isActive ? 1 : 0);
+
+  useEffect(() => {
+    bgColor.value = withTiming(isActive ? 1 : 0, { duration: 200 });
+  }, [isActive]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      bgColor.value,
+      [0, 1],
+      ['#2a2a2a', activeColor]
+    ),
+    transform: [{ scale: scale.value }],
+  }));
+
+  const handlePressIn = () => {
+    scale.value = withSpring(0.9, { damping: 15, stiffness: 300 });
+  };
+
+  const handlePressOut = () => {
+    scale.value = withSpring(1, { damping: 15, stiffness: 300 });
+  };
+
+  return (
+    <Pressable
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      onPress={onPress}
+      disabled={disabled}
+    >
+      <Animated.View
+        style={[styles.controlIconCircle, animatedStyle, disabled && styles.disabledButton]}
+      >
+        <Ionicons
+          name={(isActive && iconOff ? iconOff : icon) as any}
+          size={24}
+          color={isActive ? '#1a1a1a' : '#fff'}
+        />
+      </Animated.View>
+      <ThemedText style={[styles.controlLabel, isActive && styles.controlLabelActive]}>
+        {label}
+      </ThemedText>
+    </Pressable>
+  );
+});
+
+// ── End call button ───────────────────────────────────────
+interface EndCallButtonProps {
+  onPress: () => void;
+}
+
+const EndCallButton = memo(function EndCallButton({ onPress }: EndCallButtonProps) {
+  const scale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  return (
+    <Pressable
+      onPressIn={() => { scale.value = withSpring(0.85); }}
+      onPressOut={() => { scale.value = withSpring(1); }}
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+        onPress();
+      }}
+    >
+      <Animated.View style={[styles.endCallBtn, animatedStyle]}>
+        <Ionicons name="call" size={28} color="#fff" style={styles.endCallIcon} />
+      </Animated.View>
+    </Pressable>
+  );
+});
+
+// ── Ring Animation for incoming call ──────────────────────
+function RingAnimation({ size = 180 }: { size?: number }) {
+  const ring1 = useSharedValue(1);
+  const ring2 = useSharedValue(1);
+  const ring3 = useSharedValue(1);
+
+  useEffect(() => {
+    ring1.value = withRepeat(
+      withTiming(1.5, { duration: 2000, easing: Easing.out(Easing.ease) }),
+      -1
+    );
+    ring2.value = withDelay(
+      400,
+      withRepeat(
+        withTiming(1.5, { duration: 2000, easing: Easing.out(Easing.ease) }),
+        -1
+      )
+    );
+    ring3.value = withDelay(
+      800,
+      withRepeat(
+        withTiming(1.5, { duration: 2000, easing: Easing.out(Easing.ease) }),
+        -1
+      )
+    );
+  }, []);
+
+  const style1 = useAnimatedStyle(() => ({ transform: [{ scale: ring1.value }], opacity: 1.5 - ring1.value }));
+  const style2 = useAnimatedStyle(() => ({ transform: [{ scale: ring2.value }], opacity: 1.5 - ring2.value }));
+  const style3 = useAnimatedStyle(() => ({ transform: [{ scale: ring3.value }], opacity: 1.5 - ring3.value }));
+
+  return (
+    <>
+      <Animated.View style={[styles.ring, { width: size, height: size, borderRadius: size / 2 }, style1]} />
+      <Animated.View style={[styles.ring, { width: size, height: size, borderRadius: size / 2 }, style2]} />
+      <Animated.View style={[styles.ring, { width: size, height: size, borderRadius: size / 2 }, style3]} />
+    </>
+  );
+}
+
+// ── Main VoiceCallUI Component ───────────────────────────────
 function VoiceCallUIInner({
   visible,
-  channelName,
-  participants,
-  isMuted,
-  isDeafened,
-  isSpeaking = false,
-  onToggleMute,
-  onToggleDeafen,
-  onToggleVideo,
+  conversationId,
+  remoteUserName = 'Unknown',
+  remoteUserAvatar,
+  remoteUserId,
   onSendMessage,
   onLeave,
-  duration = 0,
-  currentUserName = 'You',
+  onMinimize,
 }: VoiceCallUIProps) {
-  const [elapsed, setElapsed] = useState(duration);
+  const currentUser = useAuthStore((s) => s.user);
+  const currentUserId = currentUser?.id?.toString() || '0';
 
+  // ── Call state từ hook ─────────────────────────────────
+  const {
+    activeCall,
+    isConnecting,
+    isRinging,
+    agoraToken,
+    agoraAppId,
+    isInCall,
+    hasIncomingCall,
+    isCaller,
+    isReceiver,
+    handleStartCall,
+    handleAcceptCall,
+    handleDeclineCall,
+    handleEndCall,
+    handleToggleMute,
+    handleToggleDeafen,
+    clearCall,
+  } = useDMCall(conversationId, currentUserId);
+
+  // ── Local state ─────────────────────────────────────────
+  const [isMuted, setIsMuted] = useState(false);
+  const [isDeafened, setIsDeafened] = useState(false);
+  const [isCameraOn, setIsCameraOn] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const callStartTimeRef = useRef<number>(0);
+  const hasStartedCallRef = useRef(false);
+
+  // ── Auto-start call khi modal mở (nếu chưa có cuộc gọi) ──
+  useEffect(() => {
+    if (visible && !activeCall && !isConnecting && !isRinging && !hasStartedCallRef.current) {
+      hasStartedCallRef.current = true;
+      console.log('[VoiceCallUI] Auto-starting call...');
+      handleStartCall();
+    }
+    
+    if (!visible) {
+      hasStartedCallRef.current = false;
+    }
+  }, [visible, activeCall, isConnecting, isRinging]);
+
+  // ── Timer ────────────────────────────────────────────────
   useEffect(() => {
     if (!visible) {
       setElapsed(0);
+      setIsMuted(false);
+      setIsDeafened(false);
+      setIsCameraOn(false);
       return;
     }
-    const interval = setInterval(() => {
-      setElapsed((prev) => prev + 1);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [visible]);
 
+    if (isInCall && activeCall) {
+      callStartTimeRef.current = Date.now();
+      const interval = setInterval(() => {
+        setElapsed((prev) => prev + 1);
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [visible, isInCall]);
+
+  // ── Auto-dismiss khi cuộc gọi kết thúc ─────────────────
+  useEffect(() => {
+    if (visible && activeCall && (activeCall.status === 'ENDED' || activeCall.status === 'DECLINED' || activeCall.status === 'MISSED')) {
+      const timer = setTimeout(() => {
+        onLeave?.();
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [visible, activeCall?.status]);
+
+  // ── Handlers ────────────────────────────────────────────
+  const handleToggleMuteLocal = useCallback(() => {
+    const newValue = !isMuted;
+    setIsMuted(newValue);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    handleToggleMute(newValue);
+  }, [isMuted, handleToggleMute]);
+
+  const handleToggleDeafenLocal = useCallback(() => {
+    const newValue = !isDeafened;
+    setIsDeafened(newValue);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    handleToggleDeafen(newValue);
+  }, [isDeafened, handleToggleDeafen]);
+
+  const handleToggleCameraLocal = useCallback(() => {
+    const newValue = !isCameraOn;
+    setIsCameraOn(newValue);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    console.log('[VoiceCall] Camera toggled:', newValue ? 'ON' : 'OFF');
+  }, [isCameraOn]);
+
+  const handleLeave = useCallback(() => {
+    handleEndCall();
+    onLeave?.();
+  }, [handleEndCall, onLeave]);
+
+  const handleMinimize = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onMinimize?.();
+  }, [onMinimize]);
+
+  const handleSendMessagePress = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // Đóng modal call và quay lại chat để nhắn tin
+    onSendMessage?.();
+  }, [onSendMessage]);
+
+  // ── Speaking pulse ───────────────────────────────────────
   const livePulse = useSharedValue(1);
-
   useEffect(() => {
     livePulse.value = withRepeat(
       withSequence(
-        withTiming(0.5, { duration: 1500, easing: Easing.inOut(Easing.ease) }),
-        withTiming(1, { duration: 1500, easing: Easing.inOut(Easing.ease) })
+        withTiming(0.3, { duration: 1200 }),
+        withTiming(1, { duration: 1200 })
       ),
       -1,
       true
     );
   }, []);
 
-  const pulseStyle = useAnimatedStyle(() => ({
-    opacity: livePulse.value,
-  }));
+  const pulseStyle = useAnimatedStyle(() => ({ opacity: livePulse.value }));
 
-  // Get main participant (first one)
-  const mainParticipant = participants[0];
-  const mainName = mainParticipant?.name || 'mfun';
+  // ── Render: Connecting / Ringing (caller side) ──────────────
+  if (visible && (isConnecting || (isRinging && isCaller))) {
+    return (
+      <Modal visible={visible} transparent animationType="fade">
+        <View style={styles.modalBackdrop}>
+          <StatusBar barStyle="light-content" />
+          <Animated.View entering={FadeIn.duration(300)} style={styles.connectingContainer}>
+            <RingAnimation size={160} />
+            <View style={styles.connectingAvatar}>
+              <Avatar name={remoteUserName} uri={remoteUserAvatar} size={100} />
+            </View>
+            <ThemedText style={styles.connectingText}>Calling...</ThemedText>
+            <ThemedText style={styles.connectingName}>{remoteUserName}</ThemedText>
+            <TouchableOpacity
+              style={styles.cancelBtn}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                handleLeave();
+              }}
+            >
+              <Ionicons name="call" size={28} color="#fff" style={{ transform: [{ rotate: '135deg' }] }} />
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
+      </Modal>
+    );
+  }
 
+  // ── Render: Incoming Call (receiver side) ─────────────────
+  if (hasIncomingCall) {
+    return (
+      <Modal visible={visible} transparent animationType="fade">
+        <View style={styles.modalBackdrop}>
+          <StatusBar barStyle="light-content" />
+          <Animated.View entering={FadeIn.duration(300)} style={styles.incomingContainer}>
+            <RingAnimation size={160} />
+            <View style={styles.incomingAvatar}>
+              <Avatar name={remoteUserName} uri={remoteUserAvatar} size={100} />
+            </View>
+            <ThemedText style={styles.incomingTitle}>Incoming voice call</ThemedText>
+            <ThemedText style={styles.incomingName}>{remoteUserName}</ThemedText>
+
+            <View style={styles.incomingActions}>
+              {/* Decline */}
+              <TouchableOpacity
+                style={styles.declineBtn}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  handleDeclineCall();
+                  onLeave?.();
+                }}
+              >
+                <Ionicons name="call" size={28} color="#fff" style={{ transform: [{ rotate: '135deg' }] }} />
+              </TouchableOpacity>
+
+              {/* Accept */}
+              <TouchableOpacity
+                style={styles.acceptBtn}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  handleAcceptCall();
+                }}
+              >
+                <Ionicons name="call" size={32} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+        </View>
+      </Modal>
+    );
+  }
+
+  // ── Render: Active Call ───────────────────────────────────
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="none"
-      onRequestClose={onLeave}
-    >
+    <Modal visible={visible} transparent animationType="none" onRequestClose={handleLeave}>
       <View style={styles.modalBackdrop}>
         <StatusBar barStyle="light-content" />
-        <Animated.View
-          entering={FadeIn.duration(300)}
-          exiting={FadeOut.duration(200)}
-          style={styles.container}
-        >
-          {/* ─── Top Status Bar ─── */}
+        <Animated.View entering={FadeIn.duration(300)} exiting={FadeOut.duration(200)} style={styles.container}>
+          {/* Status Bar */}
           <View style={styles.statusBar}>
-            <View style={styles.statusLeft}>
-              <Ionicons name="chevron-down" size={16} color="#fff" />
-              <ThemedText style={styles.channelLabel}>
-                {mainName}
-              </ThemedText>
-            </View>
-          </View>
+            <TouchableOpacity style={styles.minimizeBtn} onPress={handleMinimize} activeOpacity={0.7}>
+              <Ionicons name="chevron-down" size={20} color="#fff" />
+            </TouchableOpacity>
 
-          {/* ─── Main Content ─── */}
-          <View style={styles.mainContent}>
-            {/* ─── Remote Participant (Top) - Large Card ─── */}
-            <View style={styles.remoteCard}>
-              <View style={styles.remoteVideoArea}>
-                {/* Deep blue background with avatar */}
-                <View style={styles.remoteBg}>
-                  <Avatar
-                    name={mainName}
-                    uri={mainParticipant?.avatar}
-                    size={140}
-                  />
-                </View>
-
-                {/* Speaking indicator - subtle glow */}
-                {mainParticipant?.isSpeaking && (
-                  <Animated.View style={[styles.speakingGlow, pulseStyle]} />
-                )}
-
-                {/* Username below avatar */}
-                <View style={styles.remoteUserInfo}>
-                  <ThemedText style={styles.remoteUsername}>
-                    {mainName}
-                  </ThemedText>
-                </View>
-
-                {/* Muted indicator */}
-                {mainParticipant?.isMuted && (
-                  <View style={styles.mutedIndicator}>
-                    <Ionicons name="mic-off" size={16} color="#fff" />
-                  </View>
-                )}
+            <View style={styles.statusCenter}>
+              <ThemedText style={styles.channelLabel}>{remoteUserName}</ThemedText>
+              <View style={styles.timerBadge}>
+                <Ionicons name="time-outline" size={12} color="#fff" />
+                <ThemedText style={styles.timerText}>{formatDuration(elapsed)}</ThemedText>
               </View>
             </View>
 
-            {/* ─── Current User (Bottom) - Small Card ─── */}
+            <View style={[styles.statusDot, isInCall && styles.statusDotActive]} />
+          </View>
+
+          {/* Main Content */}
+          <View style={styles.mainContent}>
+            {/* Remote User */}
+            <View style={styles.remoteCard}>
+              <View style={styles.remoteVideoArea}>
+                <View style={styles.remoteBg}>
+                  <Avatar name={remoteUserName} uri={remoteUserAvatar} size={140} />
+                </View>
+                {isInCall && <Animated.View style={[styles.speakingGlow, pulseStyle]} />}
+                <View style={styles.remoteUserInfo}>
+                  <ThemedText style={styles.remoteUsername}>{remoteUserName}</ThemedText>
+                </View>
+              </View>
+            </View>
+
+            {/* Self View */}
             <View style={styles.selfCard}>
               <View style={styles.selfVideoArea}>
-                {/* Black/dark background with avatar */}
                 <View style={styles.selfBg}>
                   <View style={styles.selfAvatarContainer}>
-                    <View style={styles.selfAvatarBg}>
-                      <Ionicons name="person" size={48} color="#fff" />
+                    <View style={[styles.selfAvatarBg, isMuted && styles.selfAvatarBgMuted]}>
+                      <Ionicons name="person" size={44} color="#fff" />
                     </View>
-                    {/* Self indicator ring */}
                     <View style={styles.selfRing} />
                   </View>
                 </View>
-
-                {/* Username below */}
                 <View style={styles.selfUserInfo}>
-                  <ThemedText style={styles.selfUsername}>
-                    {currentUserName}
-                  </ThemedText>
+                  <ThemedText style={styles.selfUsername}>{currentUser?.displayName || 'You'}</ThemedText>
                 </View>
-
-                {/* Muted indicator */}
-                {isMuted && (
-                  <View style={styles.selfMutedIndicator}>
-                    <Ionicons name="mic-off" size={14} color="#fff" />
-                  </View>
-                )}
+                <View style={styles.selfIndicators}>
+                  {isMuted && (
+                    <View style={styles.indicatorBadge}>
+                      <Ionicons name="mic-off" size={12} color="#fff" />
+                    </View>
+                  )}
+                  {isDeafened && (
+                    <View style={[styles.indicatorBadge, styles.deafenBadge]}>
+                      <Ionicons name="headset" size={12} color="#fff" />
+                    </View>
+                  )}
+                  {isCameraOn && (
+                    <View style={[styles.indicatorBadge, styles.cameraBadge]}>
+                      <Ionicons name="videocam" size={12} color="#fff" />
+                    </View>
+                  )}
+                </View>
               </View>
             </View>
           </View>
 
-          {/* ─── Control Bar ─── */}
+          {/* Control Bar */}
           <View style={styles.controlBar}>
             <View style={styles.controlButtons}>
-              {/* Camera Off */}
-              <TouchableOpacity
-                style={styles.controlBtn}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  onToggleVideo?.();
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={styles.controlIconCircle}>
-                  <Ionicons
-                    name="videocam-off-outline"
-                    size={24}
-                    color="#fff"
-                  />
-                </View>
-                <ThemedText style={styles.controlLabel}>Camera</ThemedText>
-              </TouchableOpacity>
-
-              {/* Microphone */}
-              <TouchableOpacity
-                style={[styles.controlBtn]}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  onToggleMute();
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.controlIconCircle, isMuted && styles.controlIconMuted]}>
-                  <Ionicons
-                    name={isMuted ? 'mic-off' : 'mic'}
-                    size={24}
-                    color={isMuted ? '#1a1a1a' : '#fff'}
-                  />
-                </View>
-                <ThemedText style={[styles.controlLabel, isMuted && styles.controlLabelMuted]}>
-                  {isMuted ? 'Unmute' : 'Mute'}
-                </ThemedText>
-              </TouchableOpacity>
-
-              {/* Message */}
-              <TouchableOpacity
-                style={styles.controlBtn}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  onSendMessage?.();
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={styles.controlIconCircle}>
-                  <Ionicons
-                    name="chatbubble-outline"
-                    size={24}
-                    color="#fff"
-                  />
-                </View>
-                <ThemedText style={styles.controlLabel}>Message</ThemedText>
-              </TouchableOpacity>
-
-              {/* Effects / Settings */}
-              <TouchableOpacity
-                style={styles.controlBtn}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={styles.controlIconCircle}>
-                  <Ionicons
-                    name="options-outline"
-                    size={24}
-                    color="#fff"
-                  />
-                </View>
-                <ThemedText style={styles.controlLabel}>Effects</ThemedText>
-              </TouchableOpacity>
-            </View>
-
-            {/* End Call Button */}
-            <TouchableOpacity
-              style={styles.endCallBtn}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-                onLeave();
-              }}
-              activeOpacity={0.8}
-            >
-              <Ionicons
-                name="call"
-                size={28}
-                color="#fff"
-                style={styles.endCallIcon}
+              {/* Camera Toggle - riêng biệt, không dùng chung handler với mic */}
+              <ControlButton
+                icon="videocam"
+                iconOff="videocam-off"
+                label={isCameraOn ? 'Cam On' : 'Cam Off'}
+                isActive={isCameraOn}
+                onPress={handleToggleCameraLocal}
               />
-            </TouchableOpacity>
+              {/* Mic Toggle */}
+              <ControlButton
+                icon="mic"
+                iconOff="mic-off"
+                label={isMuted ? 'Unmute' : 'Mute'}
+                isActive={isMuted}
+                onPress={handleToggleMuteLocal}
+              />
+              {/* Message - đóng call modal và quay lại chat */}
+              <ControlButton
+                icon="chatbubble-outline"
+                label="Message"
+                isActive={false}
+                onPress={handleSendMessagePress}
+              />
+              {/* Deafen Toggle */}
+              <ControlButton
+                icon="headset-outline"
+                iconOff="headset"
+                label={isDeafened ? 'Undeafen' : 'Deafen'}
+                isActive={isDeafened}
+                onPress={handleToggleDeafenLocal}
+              />
+            </View>
+            <EndCallButton onPress={handleLeave} />
           </View>
         </Animated.View>
       </View>
@@ -319,54 +530,139 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: '#0a0a0f',
   },
+  connectingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  connectingAvatar: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  connectingText: {
+    position: 'absolute',
+    bottom: 160,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  connectingName: {
+    position: 'absolute',
+    bottom: 130,
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  cancelBtn: {
+    position: 'absolute',
+    bottom: 40,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#ff3b30',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  incomingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  incomingAvatar: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  incomingTitle: {
+    position: 'absolute',
+    bottom: 160,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  incomingName: {
+    position: 'absolute',
+    bottom: 130,
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  incomingActions: {
+    position: 'absolute',
+    bottom: 40,
+    flexDirection: 'row',
+    gap: 50,
+  },
+  declineBtn: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#ff3b30',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  acceptBtn: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#34c759',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ring: {
+    position: 'absolute',
+    borderWidth: 2,
+    borderColor: 'rgba(88, 166, 255, 0.5)',
+    backgroundColor: 'transparent',
+  },
   statusBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: Spacing.lg,
+    paddingHorizontal: Spacing.md,
     paddingTop: 50,
     paddingBottom: Spacing.md,
   },
-  statusLeft: {
-    flexDirection: 'row',
+  minimizeBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusCenter: {
     alignItems: 'center',
   },
   channelLabel: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '700',
     color: '#fff',
-    marginLeft: 6,
   },
-  statusRight: {
+  timerBadge: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginTop: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
   },
-  batteryContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: 8,
+  timerText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#fff',
+    marginLeft: 4,
   },
-  batteryBody: {
-    width: 22,
-    height: 11,
-    borderRadius: 3,
-    borderWidth: 1,
-    borderColor: '#fff',
-    padding: 1,
+  statusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#666',
   },
-  batteryLevel: {
-    width: '70%',
-    height: '100%',
-    backgroundColor: '#fff',
-    borderRadius: 1,
-  },
-  batteryTip: {
-    width: 2,
-    height: 5,
-    backgroundColor: '#fff',
-    marginLeft: 1,
-    borderTopRightRadius: 1,
-    borderBottomRightRadius: 1,
+  statusDotActive: {
+    backgroundColor: '#34c759',
   },
   mainContent: {
     flex: 1,
@@ -399,7 +695,7 @@ const styles = StyleSheet.create({
     bottom: -20,
     borderRadius: 40,
     borderWidth: 4,
-    borderColor: 'rgba(33, 150, 243, 0.4)',
+    borderColor: 'rgba(88, 166, 255, 0.5)',
   },
   remoteUserInfo: {
     marginTop: Spacing.md,
@@ -409,14 +705,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: '#fff',
-  },
-  mutedIndicator: {
-    position: 'absolute',
-    top: Spacing.md,
-    right: Spacing.md,
-    backgroundColor: 'rgba(255, 59, 48, 0.9)',
-    borderRadius: 20,
-    padding: 8,
   },
   selfCard: {
     height: 180,
@@ -447,6 +735,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  selfAvatarBgMuted: {
+    backgroundColor: '#ff3b30',
+  },
   selfRing: {
     position: 'absolute',
     top: -5,
@@ -466,19 +757,29 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#a0a0a0',
   },
-  selfMutedIndicator: {
+  selfIndicators: {
     position: 'absolute',
     bottom: Spacing.sm,
     right: Spacing.sm,
+    flexDirection: 'row',
+    gap: 4,
+  },
+  indicatorBadge: {
     backgroundColor: 'rgba(255, 59, 48, 0.9)',
-    borderRadius: 14,
-    padding: 6,
+    borderRadius: 12,
+    padding: 4,
+  },
+  deafenBadge: {
+    backgroundColor: 'rgba(255, 149, 0, 0.9)',
+  },
+  cameraBadge: {
+    backgroundColor: 'rgba(52, 199, 89, 0.9)',
   },
   controlBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: Spacing.lg,
+    paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.xl,
     paddingBottom: 40,
     backgroundColor: '#0a0a0f',
@@ -488,10 +789,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
     justifyContent: 'space-around',
-  },
-  controlBtn: {
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   controlIconCircle: {
     width: 52,
@@ -507,16 +804,17 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 4,
   },
-  controlIconMuted: {
-    backgroundColor: '#fff',
-  },
   controlLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '600',
     color: '#a0a0a0',
+    textAlign: 'center',
   },
-  controlLabelMuted: {
+  controlLabelActive: {
     color: '#fff',
+  },
+  disabledButton: {
+    opacity: 0.5,
   },
   endCallBtn: {
     width: 64,

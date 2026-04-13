@@ -1,0 +1,154 @@
+import axios from 'axios';
+
+// Lấy URL từ env, bỏ suffix /api vì service tự thêm path
+const envUrl = process.env.EXPO_PUBLIC_API_URL || 'http://10.0.2.2:8085/api';
+const API_BASE_URL = envUrl.replace(/\/api$/, '');
+
+export interface DMCallState {
+  callId: string;
+  conversationId: string;
+  callerId: string;
+  receiverId: string;
+  callerName: string;
+  receiverName: string;
+  status: 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'ENDED' | 'MISSED';
+  callerMuted: boolean;
+  receiverMuted: boolean;
+  callerDeafened: boolean;
+  receiverDeafened: boolean;
+}
+
+export interface AgoraTokenResponse {
+  token: string;
+  appId: string;
+  channelName: string;
+  userId: string;
+}
+
+export interface DMCallStateResponse {
+  hasActiveCall: boolean;
+  callState?: DMCallState;
+}
+
+class DMCallService {
+  private baseUrl = `${API_BASE_URL}/api/dm/call`;
+
+  /**
+   * Lấy trạng thái cuộc gọi hiện tại
+   */
+  async getCallStatus(conversationId: string): Promise<DMCallStateResponse> {
+    try {
+      const response = await axios.get(`${this.baseUrl}/status`, {
+        params: { conversationId },
+      });
+      return response.data;
+    } catch (error) {
+      console.error('[DMCallService] getCallStatus error:', error);
+      return { hasActiveCall: false };
+    }
+  }
+
+  /**
+   * Bắt đầu cuộc gọi
+   */
+  async startCall(conversationId: string, callerId: string): Promise<DMCallState | null> {
+    try {
+      const response = await axios.post(`${this.baseUrl}/start`, {
+        conversationId,
+        callerId,
+      });
+      return response.data;
+    } catch (error) {
+      console.error('[DMCallService] startCall error:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Chấp nhận cuộc gọi
+   */
+  async acceptCall(conversationId: string, userId: string): Promise<DMCallState | null> {
+    try {
+      const response = await axios.post(`${this.baseUrl}/accept`, {
+        conversationId,
+        userId,
+      });
+      return response.data;
+    } catch (error) {
+      console.error('[DMCallService] acceptCall error:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Từ chối cuộc gọi
+   */
+  async declineCall(conversationId: string, userId: string): Promise<DMCallState | null> {
+    try {
+      const response = await axios.post(`${this.baseUrl}/decline`, {
+        conversationId,
+        userId,
+      });
+      return response.data;
+    } catch (error) {
+      console.error('[DMCallService] declineCall error:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Kết thúc cuộc gọi
+   */
+  async endCall(conversationId: string, userId: string): Promise<DMCallState | null> {
+    try {
+      const response = await axios.post(`${this.baseUrl}/end`, {
+        conversationId,
+        userId,
+      });
+      return response.data;
+    } catch (error) {
+      console.error('[DMCallService] endCall error:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Cập nhật trạng thái mute/deafen
+   */
+  async updateState(
+    conversationId: string,
+    userId: string,
+    isMuted: boolean,
+    isDeafened: boolean
+  ): Promise<DMCallState | null> {
+    try {
+      const response = await axios.post(`${this.baseUrl}/state`, {
+        conversationId,
+        userId,
+        isMuted,
+        isDeafened,
+      });
+      return response.data;
+    } catch (error) {
+      console.error('[DMCallService] updateState error:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Lấy Agora token cho cuộc gọi
+   */
+  async getToken(conversationId: string, userId: string): Promise<AgoraTokenResponse | null> {
+    try {
+      const response = await axios.get(`${this.baseUrl}/token`, {
+        params: { conversationId, userId },
+      });
+      return response.data;
+    } catch (error) {
+      console.error('[DMCallService] getToken error:', error);
+      return null;
+    }
+  }
+}
+
+export const dmCallService = new DMCallService();
