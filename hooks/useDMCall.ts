@@ -40,8 +40,8 @@ export function useDMCall(conversationId: string, currentUserId: string) {
 
         switch (message.type) {
           case 'CALL_INCOMING':
-            // Có cuộc gọi đến - kiểm tra có phải gửi cho mình không
-            if (message.callState?.receiverId === currentUserId) {
+            // Có cuộc gọi đến - kiểm tra có phải là người khác gọi mỉnh không
+            if (message.callState && message.callState.callerId !== currentUserId) {
               setIncomingCall(message.callState);
             }
             break;
@@ -159,41 +159,75 @@ export function useDMCall(conversationId: string, currentUserId: string) {
   const remoteUserId = isCaller ? activeCall?.receiverId : activeCall?.callerId;
   const remoteUserName = isCaller ? activeCall?.receiverName : activeCall?.callerName;
 
-  // ── Fallback Polling ──────────────────────────────────────
-  // Đảm bảo caller không bị kẹt ở "Calling..." nếu lỡ mất WebSocket message (CALL_ACCEPTED)
+  // ── Initial Check (Khắc phục vào phòng trễ lỡ WS) ────────
   useEffect(() => {
-    if (!conversationId || !isRinging || !isCaller) return;
+    if (!conversationId) return;
+    let isMounted = true;
+    
+    dmCallService.getCallStatus(conversationId).then(response => {
+      if (isMounted && response.hasActiveCall && response.callState) {
+        const state = response.callState;
+        const currentStore = useDMCallStore.getState();
+        
+        // Nếu có cuộc gọi đang pending do người khác gọi
+        if (state.status === 'PENDING' && state.callerId !== currentUserId && !currentStore.isRinging) {
+           console.log('[useDMCall] Init detected missed incoming call!');
+           setIncomingCall(state);
+        } else if (state.status === 'ACCEPTED' && !currentStore.activeCall) {
+           console.log('[useDMCall] Init detected ongoing call!');
+           updateCallState(state);
+           fetchAgoraToken(conversationId, currentUserId);
+        }
+      }
+    }).catch(err => console.log('Init check call status error', err));
+    
+    return () => { isMounted = false; };
+  }, [conversationId, currentUserId, setIncomingCall, updateCallState, fetchAgoraToken]);
+
+  // ── Fallback Polling ──────────────────────────────────────
+  // Đảm bảo caller không bị kẹt ở "Calling..." và receiver không kẹt lúc "Active" 
+  // nếu lỡ mất WebSocket message
+  useEffect(() => {
+    const needsPolling = isInCall || (isRinging && isCaller);
+    if (!conversationId || !needsPolling) return;
 
     const interval = setInterval(async () => {
       try {
         const response = await dmCallService.getCallStatus(conversationId);
         if (response.hasActiveCall && response.callState) {
           const state = response.callState;
-          if (state.status === 'ACCEPTED') {
+          if (state.status === 'ACCEPTED' && isRinging && isCaller) {
             console.log('[useDMCall] Fallback detected ACCEPTED state');
             updateCallState(state);
             fetchAgoraToken(conversationId, currentUserId);
             setRinging(false);
           } else if (state.status === 'DECLINED' || state.status === 'ENDED' || state.status === 'MISSED') {
-            console.log('[useDMCall] Fallback detected ' + state.status + ' state');
-            updateCallState(state);
-            setRinging(false);
-            setTimeout(() => {
-              clearCall();
-            }, 500);
+            const currentCall = useDMCallStore.getState().activeCall;
+            if (currentCall && currentCall.status !== state.status) {
+              console.log('[useDMCall] Fallback detected ' + state.status + ' state');
+              updateCallState(state);
+              setRinging(false);
+              setTimeout(() => {
+                clearCall();
+              }, 500);
+            }
           }
         } else {
-             console.log('[useDMCall] Fallback detected no active call');
-             setRinging(false);
-             clearCall();
+             // Không có cuộc gọi => Đã dọn dẹp trên server
+             const currentCall = useDMCallStore.getState().activeCall;
+             if (currentCall) {
+               console.log('[useDMCall] Fallback detected no active call, clearing local state');
+               setRinging(false);
+               clearCall();
+             }
         }
       } catch (err) {
         console.error('[useDMCall] Fallback polling error:', err);
       }
-    }, 2000);
+    }, 3000);
 
     return () => clearInterval(interval);
-  }, [conversationId, isRinging, isCaller, currentUserId, updateCallState, fetchAgoraToken, setRinging, clearCall]);
+  }, [conversationId, isRinging, isCaller, isInCall, currentUserId, updateCallState, fetchAgoraToken, setRinging, clearCall]);
 
   return {
     // State
