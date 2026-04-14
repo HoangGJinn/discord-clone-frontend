@@ -17,7 +17,7 @@ export default function TabLayout() {
         headerShown: false,
         tabBarButton: HapticTab,
         tabBarStyle: {
-          backgroundColor: DiscordColors.secondaryBackground,
+          backgroundColor: DiscordColors.tertiaryBackground,
           borderTopColor: DiscordColors.divider,
           borderTopWidth: 1,
           height: 66,
