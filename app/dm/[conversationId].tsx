@@ -19,6 +19,7 @@ import { ChatInput } from '@/components/ChatInput';
 import { EditMessageInput } from '@/components/EditMessageInput';
 import { MessageActionSheet } from '@/components/MessageActionSheet';
 import { EmojiPicker } from '@/components/EmojiPicker';
+import { VoiceCallUI } from '@/components/VoiceCallUI';
 import { useDMStore } from '@/store/useDMStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { DirectMessage, getOtherParticipant } from '@/types/dm';
@@ -35,10 +36,9 @@ function useDMWebSocket(conversationId: string) {
 
     const destination = `/topic/dm/${conversationId}`;
 
-    const subscription = socketService.subscribe(destination, (frame) => {
+    void socketService.subscribe(destination, (message) => {
       try {
-        const messageData = JSON.parse(frame.body);
-        addRealtimeMessage(messageData);
+        addRealtimeMessage(message as DirectMessage);
       } catch (err) {
         console.error('Failed to parse DM WebSocket message:', err);
       }
@@ -80,12 +80,37 @@ export default function DMChatScreen() {
   const [emojiPickerVisible, setEmojiPickerVisible] = useState(false);
   const [emojiTargetMessageId, setEmojiTargetMessageId] = useState<string | null>(null);
 
+  // ── Day 5: Voice Call State ─────────────────────────────
+  const [voiceCallVisible, setVoiceCallVisible] = useState(false);
+
   // ── Find the other participant from conversations list ─
   const conversation = conversations.find((c) => c.id === conversationId);
   const otherUser =
     conversation && user
       ? getOtherParticipant(conversation, user.id)
       : null;
+
+  // ── Voice Call Handlers ─────────────────────────────────
+  const handleSendMessageInCall = useCallback(() => {
+    // Đóng call UI, quay lại chat (cuộc gọi vẫn tiếp tục ngầm)
+    setVoiceCallVisible(false);
+  }, []);
+
+  const handleLeaveCall = useCallback(() => {
+    console.log('[VoiceCall] Leaving call');
+    setVoiceCallVisible(false);
+  }, []);
+
+  const handleMinimizeCall = useCallback(() => {
+    setVoiceCallVisible(false);
+    console.log('[VoiceCall] Minimized');
+  }, []);
+
+  const handleStartCall = useCallback(() => {
+    setVoiceCallVisible(true);
+    console.log('[VoiceCall] Starting call with:', otherUser?.username);
+  }, [otherUser]);
+
 
   // ── Load messages on mount ─────────────────────────────
   useEffect(() => {
@@ -187,7 +212,7 @@ export default function DMChatScreen() {
       if (!msg || !user) return;
 
       const existing = msg.reactions?.find((r) => r.emoji === emoji);
-      if (existing?.users.includes(user.id)) {
+      if (existing?.users?.includes(user.id)) {
         removeReaction(messageId, emoji);
       } else {
         addReaction(messageId, emoji);
@@ -333,7 +358,7 @@ export default function DMChatScreen() {
             {/* Header Actions */}
             <View style={styles.headerActions}>
               <TouchableOpacity
-                onPress={() => alert("Voice Call feature coming soon!")}
+                onPress={handleStartCall}
                 style={styles.actionBtn}
               >
                 <Ionicons
@@ -343,7 +368,7 @@ export default function DMChatScreen() {
                 />
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={() => alert("Video Call feature coming soon!")}
+                onPress={() => Alert.alert('Video Call', 'Video call feature coming soon!')}
                 style={styles.actionBtn}
               >
                 <Ionicons
@@ -353,7 +378,7 @@ export default function DMChatScreen() {
                 />
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={() => alert("Search feature coming soon!")}
+                onPress={() => Alert.alert('Search', 'Search feature coming soon!')}
                 style={styles.actionBtn}
               >
                 <Ionicons
@@ -459,6 +484,18 @@ export default function DMChatScreen() {
           setEmojiTargetMessageId(null);
         }}
         onSelectEmoji={handleEmojiSelected}
+      />
+
+      {/* Voice Call UI */}
+      <VoiceCallUI
+        visible={voiceCallVisible}
+        conversationId={conversationId || ''}
+        remoteUserName={otherUser?.displayName || otherUser?.username || 'Unknown'}
+        remoteUserAvatar={otherUser?.avatar}
+        remoteUserId={otherUser?.id}
+        onSendMessage={handleSendMessageInCall}
+        onLeave={handleLeaveCall}
+        onMinimize={handleMinimizeCall}
       />
     </SafeAreaView>
   );

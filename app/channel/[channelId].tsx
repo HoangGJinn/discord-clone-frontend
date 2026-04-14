@@ -4,7 +4,7 @@ import {
   FlatList,
   StyleSheet,
   ActivityIndicator,
-  TouchableOpacity,
+  Pressable,
   Alert,
   Clipboard,
 } from 'react-native';
@@ -24,6 +24,7 @@ import { ChannelMessage } from '@/types/channel';
 import { DiscordColors, Spacing } from '@/constants/theme';
 import { isDifferentDay, formatDaySeparator } from '@/utils/formatTime';
 import socketService from '@/services/socketService';
+import { ChannelResponse, getChannelById } from '@/services/serverService';
 
 // ─── Custom Hook: Encapsulates WebSocket subscription logic ──
 function useChannelWebSocket(channelId: string) {
@@ -34,10 +35,9 @@ function useChannelWebSocket(channelId: string) {
 
     const destination = `/topic/channel/${channelId}`;
 
-    const subscription = socketService.subscribe(destination, (frame) => {
+    void socketService.subscribe(destination, (message) => {
       try {
-        const message: ChannelMessage = JSON.parse(frame.body);
-        addRealtimeMessage(message);
+        addRealtimeMessage(message as ChannelMessage);
       } catch (err) {
         console.error('Failed to parse Channel WebSocket message:', err);
       }
@@ -54,6 +54,7 @@ export default function ChannelChatScreen() {
   const { channelId } = useLocalSearchParams<{ channelId: string }>();
   const router = useRouter();
   const flatListRef = useRef<FlatList>(null);
+  const [channelInfo, setChannelInfo] = useState<ChannelResponse | null>(null);
 
   const user = useAuthStore((s) => s.user);
   const {
@@ -88,6 +89,24 @@ export default function ChannelChatScreen() {
     return () => {
       clearMessages();
     };
+  }, [channelId]);
+
+  useEffect(() => {
+    const loadChannel = async () => {
+      if (!channelId) {
+        setChannelInfo(null);
+        return;
+      }
+
+      try {
+        const response = await getChannelById(Number(channelId));
+        setChannelInfo(response);
+      } catch {
+        setChannelInfo(null);
+      }
+    };
+
+    void loadChannel();
   }, [channelId]);
 
   // ── Subscribe to real-time updates ─────────────────────
@@ -197,7 +216,7 @@ export default function ChannelChatScreen() {
       if (!msg || !user) return;
 
       const existing = msg.reactions?.find((r) => r.emoji === emoji);
-      if (existing?.users.includes(user.id)) {
+      if (existing?.users?.includes(user.id)) {
         removeReaction(messageId, { emoji });
       } else {
         addReaction(messageId, { emoji });
@@ -299,45 +318,63 @@ export default function ChannelChatScreen() {
     }
   }, [hasMoreMessages, isLoadingMessages, loadMoreMessages]);
 
+  const handleOpenMembers = useCallback(() => {
+    const serverId = channelInfo?.serverId;
+    if (!serverId) return;
+
+    router.push({
+      pathname: '/server/[serverId]/members',
+      params: { serverId: String(serverId) },
+    });
+  }, [channelInfo?.serverId, router]);
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity
+        <Pressable
           onPress={() => router.back()}
           style={styles.backBtn}
-          activeOpacity={0.7}
         >
           <Ionicons
-            name="menu" // often menu is used in channels, or back arrow if pushed via stack
-            size={24}
+            name="arrow-back"
+            size={20}
             color={DiscordColors.textPrimary}
           />
-        </TouchableOpacity>
+        </Pressable>
 
         <View style={styles.headerTitleContainer}>
           <Feather name="hash" size={20} color={DiscordColors.textMuted} style={styles.hashIcon} />
           <ThemedText style={styles.headerName} numberOfLines={1}>
-            {channelId ? `channel-${channelId}` : 'channel'}
+            {channelInfo?.name || (channelId ? `channel-${channelId}` : 'channel')}
           </ThemedText>
+          {channelInfo?.topic ? (
+            <ThemedText style={styles.headerTopic} numberOfLines={1}>
+              {channelInfo.topic}
+            </ThemedText>
+          ) : null}
         </View>
 
         {/* Header Actions */}
         <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.actionBtn}>
+          <Pressable style={styles.actionBtn}>
             <Ionicons
               name="search"
-              size={24}
+              size={20}
               color={DiscordColors.textSecondary}
             />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionBtn}>
+          </Pressable>
+          <Pressable
+            style={styles.actionBtn}
+            onPress={handleOpenMembers}
+            disabled={!channelInfo?.serverId}
+          >
             <Ionicons
               name="people"
-              size={24}
+              size={20}
               color={DiscordColors.textSecondary}
             />
-          </TouchableOpacity>
+          </Pressable>
         </View>
       </View>
 
@@ -388,7 +425,7 @@ export default function ChannelChatScreen() {
       ) : (
         <ChatInput
           onSend={handleSend}
-          placeholder={`Message in channel`}
+          placeholder={`Message in #${channelInfo?.name || 'channel'}`}
           disabled={isSending}
         />
       )}
@@ -427,14 +464,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
+    paddingVertical: 10,
     backgroundColor: DiscordColors.secondaryBackground,
     borderBottomWidth: 1,
     borderBottomColor: DiscordColors.divider,
   },
   backBtn: {
-    width: 36,
-    height: 36,
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: DiscordColors.tertiaryBackground,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -442,7 +481,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    marginLeft: Spacing.sm,
+    marginLeft: Spacing.md,
   },
   hashIcon: {
     marginRight: 4,
@@ -452,13 +491,24 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: DiscordColors.textPrimary,
   },
+  headerTopic: {
+    marginLeft: Spacing.sm,
+    fontSize: 12,
+    color: DiscordColors.textMuted,
+    flex: 1,
+  },
   headerActions: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 6,
   },
   actionBtn: {
-    paddingHorizontal: Spacing.xs,
-    marginLeft: Spacing.xs,
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: DiscordColors.tertiaryBackground,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   listContent: {
     paddingBottom: Spacing.sm,
@@ -488,8 +538,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: Spacing.xl,
-    // In inverted list, this appears at the top
-    transform: [{ scaleY: -1 }],
   },
   hashCircle: {
     width: 80,

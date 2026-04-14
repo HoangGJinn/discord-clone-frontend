@@ -28,9 +28,9 @@ Tài liệu này bao gồm lộ trình **10 ngày dồn dập**: **5 ngày đầ
 - [x] **Global Search**: Tìm kiếm nhanh Server, Channel, Người dùng.
 
 ### Ngày 5: Voice Chat & Hoàn thiện Customer (Voice & Polish)
-- [ ] **Voice Call**: Tích hợp Agora SDK (Join/Leave, Mute/Deafen).
-- [ ] **Presence**: Toggle trạng thái Trực tuyến/Chờ/Đừng làm phiền.
-- [ ] **Integration**: Ghép nối với Login/Server của Dev 1 và Build test bản mobile.
+- [x] **Voice Call**: Tích hợp UI Voice Call (Join/Leave, Mute/Deafen).
+- [x] **Presence**: Toggle trạng thái Trực tuyến/Chờ/Đừng làm phiền.
+- [x] **Integration**: Ghép nối với Login/Server của Dev 1 và Build test bản mobile.
 
 ---
 

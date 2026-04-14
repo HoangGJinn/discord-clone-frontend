@@ -52,14 +52,16 @@ interface ChannelItemProps {
 }
 
 function SearchChannelItemInner({ channel, onPress }: ChannelItemProps) {
+  const isVoiceChannel = channel.type === 'VOICE';
+
   return (
     <TouchableOpacity style={styles.item} onPress={onPress} activeOpacity={0.6}>
       <View style={styles.channelIcon}>
-        <Feather
-          name={channel.type === 'VOICE' ? 'volume-2' : 'hash'}
-          size={20}
-          color={DiscordColors.textMuted}
-        />
+        {isVoiceChannel ? (
+          <Feather name="volume-2" size={20} color={DiscordColors.textMuted} />
+        ) : (
+          <ThemedText style={styles.channelHash}>#</ThemedText>
+        )}
       </View>
       <View style={styles.info}>
         <ThemedText style={styles.title} numberOfLines={1}>
@@ -153,6 +155,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: Spacing.md,
+  },
+  channelHash: {
+    color: DiscordColors.textMuted,
+    fontSize: 18,
+    fontWeight: '800',
+    lineHeight: 18,
   },
   info: {
     flex: 1,
