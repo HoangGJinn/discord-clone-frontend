@@ -258,3 +258,19 @@ export const uploadFile = async (input: UploadFileInput): Promise<string> => {
   throw new Error('Upload response did not contain a file URL.');
 };
 
+// ── Invite Code APIs ────────────────────────────────────────────────────────
+
+export const joinServer = async (inviteCode: string): Promise<ServerResponse> => {
+  const response = await apiClient.post<ServerResponse>('/servers/join', { inviteCode });
+  return response.data;
+};
+
+export const regenerateInviteCode = async (
+  serverId: number,
+): Promise<string> => {
+  const response = await apiClient.post<{ inviteCode: string }>(
+    `/servers/${serverId}/invite-code`,
+  );
+  return response.data.inviteCode;
+};
+

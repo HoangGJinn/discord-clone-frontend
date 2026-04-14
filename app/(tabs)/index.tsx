@@ -1,28 +1,30 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, StyleSheet, View, Pressable } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ThemedText } from '@/components/themed-text';
-import { DiscordColors, Spacing } from '@/constants/theme';
-import { useServerStore } from '@/store/useServerStore';
-import { ServerSidebar } from '@/components/server/ServerSidebar';
-import { CreateServerModal } from '@/components/server/CreateServerModal';
-import {
-  ChannelResponse,
-  CategoryResponse,
-  deleteCategory,
-  deleteChannel,
-  ServerDetailsResponse,
-  ServerResponse,
-  getServerDetails,
-} from '@/services/serverService';
-import { ServerChannelList } from '@/components/server/ServerChannelList';
 import { CreateCategoryModal } from '@/components/server/CreateCategoryModal';
 import { CreateChannelModal } from '@/components/server/CreateChannelModal';
-import { useAuthStore } from '@/store/useAuthStore';
+import { CreateServerModal } from '@/components/server/CreateServerModal';
+import { InviteModal } from '@/components/server/InviteModal';
+import { JoinServerModal } from '@/components/server/JoinServerModal';
+import { ServerChannelList } from '@/components/server/ServerChannelList';
+import { ServerSidebar } from '@/components/server/ServerSidebar';
+import { ThemedText } from '@/components/themed-text';
+import { DiscordColors, Spacing } from '@/constants/theme';
+import {
+  CategoryResponse,
+  ChannelResponse,
+  deleteCategory,
+  deleteChannel,
+  getServerDetails,
+  ServerDetailsResponse,
+  ServerResponse,
+} from '@/services/serverService';
 import socketService from '@/services/socketService';
+import { useAuthStore } from '@/store/useAuthStore';
+import { useServerStore } from '@/store/useServerStore';
 
 interface VoiceSocketMessage {
   type?: 'JOIN' | 'LEAVE' | 'UPDATE_STATE' | 'INITIAL_SYNC';
@@ -57,6 +59,9 @@ export default function HomeScreen() {
   const [showChannelModal, setShowChannelModal] = useState(false);
   const [editingChannel, setEditingChannel] = useState<ChannelResponse | null>(null);
   const [defaultCategoryId, setDefaultCategoryId] = useState<number | null>(null);
+
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showJoinModal, setShowJoinModal] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -284,6 +289,13 @@ export default function HomeScreen() {
     [isManager, refreshServerDetails],
   );
 
+  const handleInviteCodeChanged = useCallback((newCode: string) => {
+    setActiveServerDetails((prev) => {
+      if (!prev) return prev;
+      return { ...prev, inviteCode: newCode };
+    });
+  }, []);
+
   const serverTitle = activeServerDetails?.name || activeServer?.name || 'Discord';
   const serverSubtitle = activeServerDetails
     ? activeServerDetails.description?.trim() || 'Channel overview for this server.'
@@ -302,7 +314,7 @@ export default function HomeScreen() {
 
         <View style={styles.content}>
           <View style={styles.header}>
-            <View>
+            <View style={styles.headerTitleArea}>
               <ThemedText style={styles.title} numberOfLines={1}>
                 {serverTitle}
               </ThemedText>
@@ -310,6 +322,14 @@ export default function HomeScreen() {
                 {serverSubtitle}
               </ThemedText>
             </View>
+            {activeServerDetails ? (
+              <Pressable
+                style={styles.inviteHeaderButton}
+                onPress={() => setShowInviteModal(true)}
+              >
+                <Ionicons name="person-add" size={18} color="#fff" />
+              </Pressable>
+            ) : null}
           </View>
 
           {error ? (
@@ -331,6 +351,13 @@ export default function HomeScreen() {
               <Ionicons name="search" size={18} color={DiscordColors.textMuted} />
               <ThemedText style={styles.searchText}>Search</ThemedText>
             </View>
+
+            <Pressable
+              style={styles.iconButton}
+              onPress={() => setShowJoinModal(true)}
+            >
+              <Ionicons name="enter-outline" size={18} color={DiscordColors.textSecondary} />
+            </Pressable>
 
             <Pressable
               style={styles.iconButton}
@@ -398,6 +425,19 @@ export default function HomeScreen() {
           void refreshServerDetails();
         }}
       />
+
+      <InviteModal
+        visible={showInviteModal}
+        serverDetails={activeServerDetails}
+        isManager={isManager}
+        onClose={() => setShowInviteModal(false)}
+        onInviteCodeChanged={handleInviteCodeChanged}
+      />
+
+      <JoinServerModal
+        visible={showJoinModal}
+        onClose={() => setShowJoinModal(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -420,6 +460,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  headerTitleArea: {
+    flex: 1,
+    marginRight: Spacing.sm,
+  },
+  inviteHeaderButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: DiscordColors.blurple,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   title: {
     color: DiscordColors.textPrimary,
