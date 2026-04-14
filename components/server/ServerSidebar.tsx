@@ -17,6 +17,7 @@ interface ServerSidebarProps {
   activeServerId: number | null;
   isLoading?: boolean;
   onServerPress: (server: ServerResponse) => void;
+  onServerLongPress?: (server: ServerResponse) => void;
   onCreateServerPress: () => void;
 }
 
@@ -45,6 +46,7 @@ export function ServerSidebar({
   activeServerId,
   isLoading = false,
   onServerPress,
+  onServerLongPress,
   onCreateServerPress,
 }: ServerSidebarProps) {
   return (
@@ -76,6 +78,8 @@ export function ServerSidebar({
             <Pressable
               key={server.id}
               onPress={() => onServerPress(server)}
+              onLongPress={() => onServerLongPress?.(server)}
+              delayLongPress={260}
               style={({ pressed }) => [
                 styles.serverItem,
                 isActive ? styles.serverItemActive : styles.serverItemInactive,
@@ -118,7 +122,7 @@ const styles = StyleSheet.create({
     backgroundColor: DiscordColors.tertiaryBackground,
     alignItems: 'center',
     paddingTop: Spacing.md,
-    paddingBottom: Spacing.md,
+    paddingBottom: 0,
   },
   homeButton: {
     width: 48,
@@ -141,7 +145,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     alignItems: 'center',
     gap: Spacing.sm,
-    paddingBottom: Spacing.sm,
+    paddingBottom: 0,
   },
   emptyLabel: {
     fontSize: 11,

@@ -241,9 +241,9 @@ export function ServerChannelList({
 
       {isManager ? (
         <View style={styles.bottomActionContainer}>
-          <Pressable style={styles.bottomAddCategoryButton} onPress={() => onAddCategory?.()}>
-            <Ionicons name="add" size={18} color={DiscordColors.textSecondary} />
-            <ThemedText style={styles.bottomAddCategoryText}>Add category</ThemedText>
+          <Pressable style={styles.compactAddCategoryButton} onPress={() => onAddCategory?.()}>
+            <Ionicons name="add" size={16} color={DiscordColors.textSecondary} />
+            <ThemedText style={styles.compactAddCategoryText}>Category</ThemedText>
           </Pressable>
         </View>
       ) : null}
@@ -254,13 +254,16 @@ export function ServerChannelList({
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+    backgroundColor: DiscordColors.primaryBackground,
   },
   scroll: {
     flex: 1,
+    backgroundColor: DiscordColors.primaryBackground,
   },
   scrollContent: {
     paddingHorizontal: Spacing.md,
-    paddingBottom: Spacing.md,
+    paddingBottom: 0,
+    backgroundColor: DiscordColors.primaryBackground,
   },
   loaderContainer: {
     flex: 1,
@@ -356,29 +359,28 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginLeft: Spacing.sm,
   },
-  bottomAddCategoryButton: {
-    borderRadius: 12,
+  compactAddCategoryButton: {
+    borderRadius: 999,
     backgroundColor: DiscordColors.tertiaryBackground,
     borderWidth: 1,
     borderColor: DiscordColors.divider,
-    minHeight: 48,
-    paddingHorizontal: Spacing.md,
+    minHeight: 36,
+    paddingHorizontal: Spacing.sm,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 6,
   },
   bottomActionContainer: {
-    paddingHorizontal: Spacing.md,
+    paddingHorizontal: Spacing.sm,
     paddingTop: Spacing.sm,
-    paddingBottom: Spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: DiscordColors.divider,
-    backgroundColor: DiscordColors.secondaryBackground,
+    paddingBottom: Spacing.xs,
+    alignItems: 'flex-end',
+    backgroundColor: DiscordColors.primaryBackground,
   },
-  bottomAddCategoryText: {
+  compactAddCategoryText: {
     color: DiscordColors.textSecondary,
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '700',
   },
 });

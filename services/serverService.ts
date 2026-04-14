@@ -74,6 +74,12 @@ export interface CreateServerInput {
   iconUrl?: string;
 }
 
+export interface UpdateServerInput {
+  name?: string;
+  description?: string;
+  iconUrl?: string;
+}
+
 export interface CreateCategoryInput {
   name: string;
   position?: number;
@@ -173,9 +179,14 @@ export const createCategory = async (
   serverId: number,
   input: CreateCategoryInput,
 ): Promise<CategoryResponse> => {
+  const payload = {
+    ...input,
+    serverId,
+  };
+
   const response = await apiClient.post<CategoryResponse>(
     `/servers/${serverId}/categories`,
-    input,
+    payload,
   );
   return response.data;
 };
@@ -196,9 +207,14 @@ export const createChannel = async (
   serverId: number,
   input: CreateChannelInput,
 ): Promise<ChannelResponse> => {
+  const payload = {
+    ...input,
+    serverId,
+  };
+
   const response = await apiClient.post<ChannelResponse>(
     `/servers/${serverId}/channels`,
-    input,
+    payload,
   );
   return response.data;
 };
@@ -227,6 +243,22 @@ export const createServer = async (
 
   const response = await apiClient.post<ServerResponse>('/servers', payload);
   return response.data;
+};
+
+export const updateServer = async (
+  serverId: number,
+  input: UpdateServerInput,
+): Promise<ServerResponse> => {
+  const response = await apiClient.put<ServerResponse>(`/servers/${serverId}`, input);
+  return response.data;
+};
+
+export const deleteServer = async (serverId: number): Promise<void> => {
+  await apiClient.delete(`/servers/${serverId}`);
+};
+
+export const leaveServer = async (serverId: number): Promise<void> => {
+  await apiClient.post(`/servers/${serverId}/leave`);
 };
 
 export const uploadFile = async (input: UploadFileInput): Promise<string> => {
