@@ -26,12 +26,20 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleLogin() async {
+    final userName = _userNameController.text.trim();
     final result = await _controller.login(
-      userName: _userNameController.text,
+      userName: userName,
       password: _passwordController.text,
     );
 
-    if (!mounted) {
+    if (!mounted) return;
+
+    if (result.success) {
+      // Navigate to AdminShell, passing the admin's username
+      Navigator.of(context).pushReplacementNamed(
+        '/shell',
+        arguments: userName,
+      );
       return;
     }
 
@@ -39,7 +47,10 @@ class _LoginScreenState extends State<LoginScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(result.message!),
-          backgroundColor: result.success ? AppColors.blurple : AppColors.danger,
+          backgroundColor: AppColors.danger,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       );
     }
