@@ -34,6 +34,8 @@ import {
 import { ServerChannelList } from '@/components/server/ServerChannelList';
 import { CreateCategoryModal } from '@/components/server/CreateCategoryModal';
 import { CreateChannelModal } from '@/components/server/CreateChannelModal';
+import { InviteModal } from '@/components/server/InviteModal';
+import { JoinServerModal } from '@/components/server/JoinServerModal';
 import { useAuthStore } from '@/store/useAuthStore';
 import socketService from '@/services/socketService';
 
@@ -78,6 +80,9 @@ export default function HomeScreen() {
   const [showServerOptionsModal, setShowServerOptionsModal] = useState(false);
   const [selectedServerForOptions, setSelectedServerForOptions] = useState<ServerResponse | null>(null);
   const [isServerActionLoading, setIsServerActionLoading] = useState(false);
+
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showJoinModal, setShowJoinModal] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -405,6 +410,13 @@ export default function HomeScreen() {
     [isManager, refreshServerDetails],
   );
 
+  const handleInviteCodeChanged = useCallback((newCode: string) => {
+    setActiveServerDetails((prev) => {
+      if (!prev) return prev;
+      return { ...prev, inviteCode: newCode };
+    });
+  }, []);
+
   const serverTitle = activeServerDetails?.name || activeServer?.name || 'Discord';
   const selectedServerUserId = Number(user?.id);
   const selectedServerIsOwner = Boolean(selectedServerForOptions) &&
@@ -426,11 +438,19 @@ export default function HomeScreen() {
 
         <View style={styles.content}>
           <View style={styles.header}>
-            <View>
+            <View style={{ flex: 1, marginRight: Spacing.sm }}>
               <ThemedText style={styles.title} numberOfLines={1}>
                 {serverTitle}
               </ThemedText>
             </View>
+            {activeServerDetails ? (
+              <Pressable
+                style={styles.inviteHeaderButton}
+                onPress={() => setShowInviteModal(true)}
+              >
+                <Ionicons name="person-add" size={18} color="#fff" />
+              </Pressable>
+            ) : null}
           </View>
 
           {error ? (
@@ -452,6 +472,13 @@ export default function HomeScreen() {
               <Ionicons name="search" size={18} color={DiscordColors.textMuted} />
               <ThemedText style={styles.searchText}>Search</ThemedText>
             </View>
+
+            <Pressable
+              style={styles.iconButton}
+              onPress={() => setShowJoinModal(true)}
+            >
+              <Ionicons name="enter-outline" size={18} color={DiscordColors.textSecondary} />
+            </Pressable>
 
             <Pressable
               style={styles.iconButton}
@@ -666,6 +693,19 @@ export default function HomeScreen() {
           void refreshServerDetails();
         }}
       />
+
+      <InviteModal
+        visible={showInviteModal}
+        serverDetails={activeServerDetails}
+        isManager={isManager}
+        onClose={() => setShowInviteModal(false)}
+        onInviteCodeChanged={handleInviteCodeChanged}
+      />
+
+      <JoinServerModal
+        visible={showJoinModal}
+        onClose={() => setShowJoinModal(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -697,6 +737,14 @@ const styles = StyleSheet.create({
     color: DiscordColors.textPrimary,
     fontSize: 24,
     fontWeight: '800',
+  },
+  inviteHeaderButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: DiscordColors.blurple,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   searchRow: {
     flexDirection: 'row',
