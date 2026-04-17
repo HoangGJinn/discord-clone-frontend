@@ -5,18 +5,28 @@ import 'package:discord_clone_admin/core/network/api_exception.dart';
 import 'package:http/http.dart' as http;
 
 class ApiClient {
-  ApiClient({http.Client? httpClient}) : _httpClient = httpClient ?? http.Client();
-
   final http.Client _httpClient;
+
+// {http.Client? httpClient} -> named optional parameter, allows passing a custom http.Client 
+//for testing or other purposes. If not provided, it defaults to a new instance of http.Client.
+  ApiClient({http.Client? httpClient}) : _httpClient = httpClient ?? http.Client();
 
   Future<Map<String, dynamic>> post(
     String path,
     Map<String, dynamic> body,
+    {
+    String? bearerToken,
+  }
   ) async {
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (bearerToken != null && bearerToken.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $bearerToken';
+    }
+
     final response = await _httpClient
         .post(
           Uri.parse('${AppEnv.apiBaseUrl}$path'),
-          headers: const {'Content-Type': 'application/json'},
+          headers: headers,
           body: jsonEncode(body),
         )
         .timeout(const Duration(seconds: 15));
