@@ -1,7 +1,7 @@
 import React, { memo } from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { Avatar } from './Avatar';
+import { UserAvatarWithActions } from './UserAvatarWithActions';
 import { ThemedText } from './themed-text';
 import { DiscordColors, Spacing } from '@/constants/theme';
 import { formatRelativeTime } from '@/utils/formatTime';
@@ -45,17 +45,16 @@ function ConversationItemInner({
         activeOpacity={0.6}
       >
         {/* Avatar with online status */}
-        <Avatar
-          name={participant.displayName || participant.username}
-          uri={participant.avatar}
+        <UserAvatarWithActions
+          user={{
+            id: participant.id,
+            username: participant.username,
+            displayName: participant.displayName,
+            avatar: participant.avatar,
+            status: participant.status,
+            bio: participant.bio,
+          }}
           size={48}
-          status={
-            (participant.status?.toUpperCase() as
-              | 'ONLINE'
-              | 'IDLE'
-              | 'DND'
-              | 'OFFLINE') || 'OFFLINE'
-          }
         />
 
         {/* Conversation info */}

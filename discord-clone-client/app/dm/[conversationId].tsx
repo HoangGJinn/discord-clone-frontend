@@ -14,8 +14,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Avatar } from '@/components/Avatar';
 import { ThemedText } from '@/components/themed-text';
+import { UserAvatarWithActions } from '@/components/UserAvatarWithActions';
 import { MessageBubble } from '@/components/MessageBubble';
 import { ChatInput } from '@/components/ChatInput';
 import { EditMessageInput } from '@/components/EditMessageInput';
@@ -258,7 +258,7 @@ export default function DMChatScreen() {
       const previous = messages[index + 1]; // next older message (inverted)
 
       if (!previous) return true;
-      if (current.sender.id !== previous.sender.id) return true;
+      if (String(current.sender.id) !== String(previous.sender.id)) return true;
       if (isDifferentDay(previous.createdAt, current.createdAt)) return true;
 
       // Show header if more than 5 minutes gap
@@ -273,7 +273,7 @@ export default function DMChatScreen() {
   // ── Render message item ────────────────────────────────
   const renderMessage = useCallback(
     ({ item, index }: { item: DirectMessage; index: number }) => {
-      const isOwn = item.sender.id === user?.id;
+      const isOwn = String(item.sender.id) === String(user?.id || '');
       const showHeader = shouldShowHeader(index);
 
       // Day separator: check if the next (older) message is on a different day
@@ -335,17 +335,16 @@ export default function DMChatScreen() {
         {otherUser && (
           <>
             <View style={styles.headerUser}>
-              <Avatar
-                name={otherUser.displayName || otherUser.username}
-                uri={otherUser.avatar}
+              <UserAvatarWithActions
+                user={{
+                  id: otherUser.id,
+                  username: otherUser.username,
+                  displayName: otherUser.displayName,
+                  avatar: otherUser.avatar,
+                  status: otherUser.status,
+                  bio: otherUser.bio,
+                }}
                 size={32}
-                status={
-                  (otherUser.status?.toUpperCase() as
-                    | "ONLINE"
-                    | "IDLE"
-                    | "DND"
-                    | "OFFLINE") || "OFFLINE"
-                }
               />
               <View style={styles.headerInfo}>
                 <ThemedText style={styles.headerName} numberOfLines={1}>
@@ -429,9 +428,15 @@ export default function DMChatScreen() {
               <View style={styles.emptyContainer}>
                 {otherUser && (
                   <>
-                    <Avatar
-                      name={otherUser.displayName || otherUser.username}
-                      uri={otherUser.avatar}
+                    <UserAvatarWithActions
+                      user={{
+                        id: otherUser.id,
+                        username: otherUser.username,
+                        displayName: otherUser.displayName,
+                        avatar: otherUser.avatar,
+                        status: otherUser.status,
+                        bio: otherUser.bio,
+                      }}
                       size={72}
                     />
                     <ThemedText style={styles.emptyTitle}>
@@ -591,8 +596,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: Spacing.xl,
-    // In inverted list, this appears at the top
-    transform: [{ scaleY: -1 }],
   },
   emptyTitle: {
     fontSize: 20,

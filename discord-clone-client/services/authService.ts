@@ -39,6 +39,12 @@ export interface VerifyAccountRequest {
   otp: string;
 }
 
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
+  confirmNewPassword: string;
+}
+
 export interface ResendOtpRequest {
   email: string;
   type: "VERIFY_ACCOUNT" | "RESET_PASSWORD";
@@ -76,6 +82,11 @@ export const authService = {
 
   resetPassword: async (data: ResetPasswordRequest): Promise<AuthMessageResponse> => {
     const response = await apiClient.post<AuthMessageResponse>("/auth/reset-password", data);
+    return response.data;
+  },
+
+  changePassword: async (data: ChangePasswordRequest): Promise<AuthMessageResponse> => {
+    const response = await apiClient.put<AuthMessageResponse>("/users/me/password", data);
     return response.data;
   },
 

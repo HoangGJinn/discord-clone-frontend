@@ -2,10 +2,12 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
+  RefreshControl,
   StyleSheet,
   TextInput,
   View,
@@ -13,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 
 import { ThemedText } from '@/components/themed-text';
 import { DiscordColors, Spacing } from '@/constants/theme';
@@ -29,6 +32,7 @@ import {
   ServerDetailsResponse,
   ServerResponse,
   getServerDetails,
+  uploadFile,
   updateServer,
 } from '@/services/serverService';
 import { ServerChannelList } from '@/components/server/ServerChannelList';
@@ -38,6 +42,9 @@ import { InviteModal } from '@/components/server/InviteModal';
 import { JoinServerModal } from '@/components/server/JoinServerModal';
 import { useAuthStore } from '@/store/useAuthStore';
 import socketService from '@/services/socketService';
+import { useDMStore } from '@/store/useDMStore';
+import { ConversationItem } from '@/components/ConversationItem';
+import { Conversation, getOtherParticipant } from '@/types/dm';
 
 interface VoiceSocketMessage {
   type?: 'JOIN' | 'LEAVE' | 'UPDATE_STATE' | 'INITIAL_SYNC';
@@ -59,12 +66,17 @@ export default function HomeScreen() {
   const setActiveServerId = useServerStore((state) => state.setActiveServerId);
   const clearError = useServerStore((state) => state.clearError);
   const user = useAuthStore((state) => state.user);
+  const conversations = useDMStore((state) => state.conversations);
+  const isLoadingConversations = useDMStore((state) => state.isLoadingConversations);
+  const fetchConversations = useDMStore((state) => state.fetchConversations);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [activeServerDetails, setActiveServerDetails] = useState<ServerDetailsResponse | null>(null);
   const [activeChannelId, setActiveChannelId] = useState<number | null>(null);
   const [isLoadingServerDetails, setIsLoadingServerDetails] = useState(false);
   const [voiceChannelCounts, setVoiceChannelCounts] = useState<Record<number, number>>({});
+  const [isDmPanelActive, setIsDmPanelActive] = useState(true);
+  const [dmSearchQuery, setDmSearchQuery] = useState('');
 
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [editingCategory, setEditingCategory] = useState<CategoryResponse | null>(null);
@@ -83,12 +95,21 @@ export default function HomeScreen() {
 
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
+  const [isUpdatingServerIcon, setIsUpdatingServerIcon] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       void fetchServers();
     }, [fetchServers]),
   );
+
+  useEffect(() => {
+    if (!isDmPanelActive) {
+      return;
+    }
+
+    void fetchConversations();
+  }, [fetchConversations, isDmPanelActive]);
 
   useEffect(() => {
     const loadServerDetails = async () => {
@@ -192,8 +213,35 @@ export default function HomeScreen() {
     [servers, activeServerId],
   );
 
+  const filteredConversations = useMemo(() => {
+    if (!user) {
+      return conversations;
+    }
+
+    const query = dmSearchQuery.trim().toLowerCase();
+    return conversations.filter((conversation) => {
+      if (!conversation) return false;
+
+      if (!query) {
+        return true;
+      }
+
+      const other = getOtherParticipant(conversation, user.id);
+      const name = (other.displayName || other.username || '').toLowerCase();
+      return name.includes(query);
+    });
+  }, [conversations, dmSearchQuery, user]);
+
+  const handleOpenConversation = useCallback(
+    (conversationId: string) => {
+      router.push(`/dm/${conversationId}` as any);
+    },
+    [router],
+  );
+
   const handleServerPress = useCallback(
     (server: ServerResponse) => {
+      setIsDmPanelActive(false);
       setActiveServerId(server.id);
     },
     [setActiveServerId],
@@ -201,6 +249,7 @@ export default function HomeScreen() {
 
   const handleServerLongPress = useCallback(
     (server: ServerResponse) => {
+      setIsDmPanelActive(false);
       setActiveServerId(server.id);
       setSelectedServerForOptions(server);
       setShowServerOptionsModal(true);
@@ -231,6 +280,7 @@ export default function HomeScreen() {
             setIsServerActionLoading(true);
             try {
               await deleteServer(selectedServerForOptions.id);
+
               setShowServerOptionsModal(false);
               setSelectedServerForOptions(null);
               await fetchServers();
@@ -244,6 +294,82 @@ export default function HomeScreen() {
       ],
     );
   }, [fetchServers, selectedServerForOptions]);
+
+  const handlePickServerAvatar = useCallback(async () => {
+    if (!selectedServerForOptions || isUpdatingServerIcon) {
+      return;
+    }
+
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission required', 'Please allow photo library access to change server avatar.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.82,
+      });
+
+      if (result.canceled || !result.assets?.[0]) {
+        return;
+      }
+
+      setIsUpdatingServerIcon(true);
+      const asset = result.assets[0];
+      const uploadedUrl = await uploadFile({
+        uri: asset.uri,
+        mimeType: asset.mimeType || 'image/jpeg',
+        fileName: asset.fileName || `server-icon-${selectedServerForOptions.id}.jpg`,
+      });
+
+      await updateServer(selectedServerForOptions.id, {
+        iconUrl: uploadedUrl,
+      });
+      await fetchServers();
+
+      if (activeServerId === selectedServerForOptions.id) {
+        const details = await getServerDetails(selectedServerForOptions.id);
+        setActiveServerDetails(details);
+      }
+
+      setShowServerOptionsModal(false);
+      setSelectedServerForOptions(null);
+    } catch (error: any) {
+      Alert.alert('Error', error?.message || 'Could not update server avatar.');
+    } finally {
+      setIsUpdatingServerIcon(false);
+    }
+  }, [activeServerId, fetchServers, isUpdatingServerIcon, selectedServerForOptions]);
+
+  const handleClearServerAvatar = useCallback(() => {
+    if (!selectedServerForOptions || isUpdatingServerIcon) {
+      return;
+    }
+
+    void (async () => {
+      try {
+        setIsUpdatingServerIcon(true);
+        await updateServer(selectedServerForOptions.id, { iconUrl: '' });
+        await fetchServers();
+
+        if (activeServerId === selectedServerForOptions.id) {
+          const details = await getServerDetails(selectedServerForOptions.id);
+          setActiveServerDetails(details);
+        }
+      } catch {
+        Alert.alert('Error', 'Could not clear server avatar.');
+      } finally {
+        setIsUpdatingServerIcon(false);
+      }
+    })();
+
+    setShowServerOptionsModal(false);
+    setSelectedServerForOptions(null);
+  }, [activeServerId, fetchServers, isUpdatingServerIcon, selectedServerForOptions]);
 
   const handleLeaveServerFromOptions = useCallback(async () => {
     if (!selectedServerForOptions) return;
@@ -418,96 +544,196 @@ export default function HomeScreen() {
   }, []);
 
   const serverTitle = activeServerDetails?.name || activeServer?.name || 'Discord';
+  const dmTitle = 'Friends';
   const selectedServerUserId = Number(user?.id);
   const selectedServerIsOwner = Boolean(selectedServerForOptions) &&
     Boolean(user?.id) &&
     Number.isFinite(selectedServerUserId) &&
     selectedServerForOptions?.ownerId === selectedServerUserId;
 
+  const renderDmConversationItem = useCallback(
+    ({ item, index }: { item: Conversation; index: number }) => {
+      if (!user) return null;
+
+      const other = getOtherParticipant(item, user.id);
+
+      return (
+        <ConversationItem
+          participant={other}
+          lastMessageContent={item.lastMessage?.content}
+          lastMessageSender={
+            item.lastMessage
+              ? String(item.lastMessage.sender?.id) === String(user.id)
+                ? 'You'
+                : item.lastMessage.sender?.username || 'User'
+              : undefined
+          }
+          lastMessageTime={item.lastMessage?.createdAt || item.updatedAt}
+          unreadCount={item.unreadCount}
+          onPress={() => handleOpenConversation(item.id)}
+          index={index}
+        />
+      );
+    },
+    [handleOpenConversation, user],
+  );
+
+  const dmConversationKey = useCallback(
+    (item: Conversation, index: number) => item.id || `dm-${index}`,
+    [],
+  );
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <View style={styles.container}>
         <ServerSidebar
           servers={servers}
-          activeServerId={activeServerId}
+          activeServerId={isDmPanelActive ? null : activeServerId}
+          isDirectMessagesActive={isDmPanelActive}
           isLoading={isLoadingServers}
           onServerPress={handleServerPress}
           onServerLongPress={handleServerLongPress}
           onCreateServerPress={() => setShowCreateModal(true)}
+          onDirectMessagesPress={() => setIsDmPanelActive(true)}
         />
 
         <View style={styles.content}>
-          <View style={styles.header}>
-            <View style={{ flex: 1, marginRight: Spacing.sm }}>
-              <ThemedText style={styles.title} numberOfLines={1}>
-                {serverTitle}
-              </ThemedText>
-            </View>
-            {activeServerDetails ? (
-              <Pressable
-                style={styles.inviteHeaderButton}
-                onPress={() => setShowInviteModal(true)}
-              >
-                <Ionicons name="person-add" size={18} color="#fff" />
-              </Pressable>
-            ) : null}
-          </View>
+          {isDmPanelActive ? (
+            <>
+              <View style={styles.header}>
+                <View style={{ flex: 1, marginRight: Spacing.sm }}>
+                  <ThemedText style={styles.title} numberOfLines={1}>
+                    {dmTitle}
+                  </ThemedText>
+                </View>
+              </View>
 
-          {error ? (
-            <Pressable
-              style={styles.errorCard}
-              onPress={() => {
-                clearError();
-                void fetchServers();
-              }}
-            >
-              <Ionicons name="alert-circle" size={16} color={DiscordColors.red} />
-              <ThemedText style={styles.errorText}>{error}</ThemedText>
-              <ThemedText style={styles.errorRetry}>Tap to retry</ThemedText>
-            </Pressable>
-          ) : null}
+              <View style={styles.searchRow}>
+                <View style={styles.searchPill}>
+                  <Ionicons name="search" size={18} color={DiscordColors.textMuted} />
+                  <TextInput
+                    style={styles.dmSearchInput}
+                    placeholder="Find or start a conversation"
+                    placeholderTextColor={DiscordColors.textMuted}
+                    value={dmSearchQuery}
+                    onChangeText={setDmSearchQuery}
+                    autoCorrect={false}
+                    autoCapitalize="none"
+                  />
+                </View>
 
-          <View style={styles.searchRow}>
-            <View style={styles.searchPill}>
-              <Ionicons name="search" size={18} color={DiscordColors.textMuted} />
-              <ThemedText style={styles.searchText}>Search</ThemedText>
-            </View>
+                <Pressable
+                  style={styles.dmAddFriendButton}
+                  onPress={() => router.push('/friends/add')}
+                >
+                  <Ionicons name="person-add" size={20} color="#fff" />
+                </Pressable>
+              </View>
 
-            <Pressable
-              style={styles.iconButton}
-              onPress={() => setShowJoinModal(true)}
-            >
-              <Ionicons name="enter-outline" size={18} color={DiscordColors.textSecondary} />
-            </Pressable>
+              <View style={styles.dmListContainer}>
+                <FlatList
+                  data={filteredConversations}
+                  renderItem={renderDmConversationItem}
+                  keyExtractor={dmConversationKey}
+                  refreshControl={(
+                    <RefreshControl
+                      refreshing={isLoadingConversations}
+                      onRefresh={fetchConversations}
+                      tintColor={DiscordColors.blurple}
+                    />
+                  )}
+                  ListEmptyComponent={(
+                    <View style={styles.dmEmptyContainer}>
+                      <Ionicons
+                        name="chatbubbles-outline"
+                        size={54}
+                        color={DiscordColors.textMuted}
+                      />
+                      <ThemedText style={styles.dmEmptyTitle}>No messages yet</ThemedText>
+                      <ThemedText style={styles.dmEmptySubtitle}>
+                        Start a conversation from your friends list.
+                      </ThemedText>
+                    </View>
+                  )}
+                  contentContainerStyle={filteredConversations.length === 0 ? styles.dmEmptyList : undefined}
+                />
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={styles.header}>
+                <View style={{ flex: 1, marginRight: Spacing.sm }}>
+                  <ThemedText style={styles.title} numberOfLines={1}>
+                    {serverTitle}
+                  </ThemedText>
+                </View>
+                {activeServerDetails ? (
+                  <Pressable
+                    style={styles.inviteHeaderButton}
+                    onPress={() => setShowInviteModal(true)}
+                  >
+                    <Ionicons name="person-add" size={18} color="#fff" />
+                  </Pressable>
+                ) : null}
+              </View>
 
-            <Pressable
-              style={styles.iconButton}
-              onPress={() => {
-                if (!activeServerId) return;
-                router.push({
-                  pathname: '/server/[serverId]/members',
-                  params: { serverId: String(activeServerId) },
-                });
-              }}
-            >
-              <Ionicons name="people" size={18} color={DiscordColors.textSecondary} />
-            </Pressable>
-          </View>
+              {error ? (
+                <Pressable
+                  style={styles.errorCard}
+                  onPress={() => {
+                    clearError();
+                    void fetchServers();
+                  }}
+                >
+                  <Ionicons name="alert-circle" size={16} color={DiscordColors.red} />
+                  <ThemedText style={styles.errorText}>{error}</ThemedText>
+                  <ThemedText style={styles.errorRetry}>Tap to retry</ThemedText>
+                </Pressable>
+              ) : null}
 
-          <ServerChannelList
-            serverDetails={activeServerDetails}
-            activeChannelId={activeChannelId}
-            isLoading={isLoadingServerDetails}
-            isManager={isManager}
-            voiceChannelCounts={voiceChannelCounts}
-            onChannelPress={handleChannelPress}
-            onAddCategory={openCreateCategory}
-            onAddChannel={openCreateChannel}
-            onEditCategory={openEditCategory}
-            onDeleteCategory={handleDeleteCategory}
-            onEditChannel={openEditChannel}
-            onDeleteChannel={handleDeleteChannel}
-          />
+              <View style={styles.searchRow}>
+                <View style={styles.searchPill}>
+                  <Ionicons name="search" size={18} color={DiscordColors.textMuted} />
+                  <ThemedText style={styles.searchText}>Search</ThemedText>
+                </View>
+
+                <Pressable
+                  style={styles.iconButton}
+                  onPress={() => setShowJoinModal(true)}
+                >
+                  <Ionicons name="enter-outline" size={18} color={DiscordColors.textSecondary} />
+                </Pressable>
+
+                <Pressable
+                  style={styles.iconButton}
+                  onPress={() => {
+                    if (!activeServerId) return;
+                    router.push({
+                      pathname: '/server/[serverId]/members',
+                      params: { serverId: String(activeServerId) },
+                    });
+                  }}
+                >
+                  <Ionicons name="people" size={18} color={DiscordColors.textSecondary} />
+                </Pressable>
+              </View>
+
+              <ServerChannelList
+                serverDetails={activeServerDetails}
+                activeChannelId={activeChannelId}
+                isLoading={isLoadingServerDetails}
+                isManager={isManager}
+                voiceChannelCounts={voiceChannelCounts}
+                onChannelPress={handleChannelPress}
+                onAddCategory={openCreateCategory}
+                onAddChannel={openCreateChannel}
+                onEditCategory={openEditCategory}
+                onDeleteCategory={handleDeleteCategory}
+                onEditChannel={openEditChannel}
+                onDeleteChannel={handleDeleteChannel}
+              />
+            </>
+          )}
         </View>
       </View>
 
@@ -569,6 +795,26 @@ export default function HomeScreen() {
 
               {selectedServerIsOwner ? (
                 <>
+                  <Pressable
+                    style={styles.serverOptionButton}
+                    onPress={() => {
+                      void handlePickServerAvatar();
+                    }}
+                    disabled={isUpdatingServerIcon || isServerActionLoading}
+                  >
+                    <Ionicons name="image-outline" size={18} color={DiscordColors.textSecondary} />
+                    <ThemedText style={styles.serverOptionText}>Change Server Avatar</ThemedText>
+                  </Pressable>
+
+                  <Pressable
+                    style={styles.serverOptionButton}
+                    onPress={handleClearServerAvatar}
+                    disabled={isUpdatingServerIcon || isServerActionLoading}
+                  >
+                    <Ionicons name="close-circle-outline" size={18} color={DiscordColors.textSecondary} />
+                    <ThemedText style={styles.serverOptionText}>Clear Server Avatar</ThemedText>
+                  </Pressable>
+
                   <Pressable style={styles.serverOptionButton} onPress={handleOpenRenameServer}>
                     <Ionicons name="pencil-outline" size={18} color={DiscordColors.textSecondary} />
                     <ThemedText style={styles.serverOptionText}>Rename Server</ThemedText>
@@ -598,6 +844,10 @@ export default function HomeScreen() {
             </View>
 
             {isServerActionLoading ? (
+              <View style={styles.serverOptionsLoadingRow}>
+                <ActivityIndicator size="small" color={DiscordColors.textSecondary} />
+              </View>
+            ) : isUpdatingServerIcon ? (
               <View style={styles.serverOptionsLoadingRow}>
                 <ActivityIndicator size="small" color={DiscordColors.textSecondary} />
               </View>
@@ -766,6 +1016,45 @@ const styles = StyleSheet.create({
     color: DiscordColors.textMuted,
     fontSize: 14,
     fontWeight: '600',
+  },
+  dmSearchInput: {
+    flex: 1,
+    color: DiscordColors.textPrimary,
+    fontSize: 14,
+    paddingVertical: 0,
+  },
+  dmAddFriendButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: DiscordColors.green,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dmListContainer: {
+    flex: 1,
+    backgroundColor: DiscordColors.secondaryBackground,
+  },
+  dmEmptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 88,
+    paddingHorizontal: Spacing.lg,
+  },
+  dmEmptyTitle: {
+    marginTop: Spacing.md,
+    color: DiscordColors.textSecondary,
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  dmEmptySubtitle: {
+    marginTop: Spacing.xs,
+    color: DiscordColors.textMuted,
+    fontSize: 13,
+    textAlign: 'center',
+  },
+  dmEmptyList: {
+    flexGrow: 1,
   },
   iconButton: {
     width: 44,

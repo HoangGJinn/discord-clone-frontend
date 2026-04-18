@@ -12,7 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
-import { Avatar } from '@/components/Avatar';
+import { UserAvatarWithActions } from '@/components/UserAvatarWithActions';
 import { ThemedText } from '@/components/themed-text';
 import { DiscordColors, Spacing } from '@/constants/theme';
 import {
@@ -219,11 +219,15 @@ export default function ServerMembersScreen() {
                       delayLongPress={260}
                       style={styles.memberRow}
                     >
-                      <Avatar
+                      <UserAvatarWithActions
+                        user={{
+                          id: member.userId,
+                          username: member.userName,
+                          displayName: member.displayName,
+                          avatar: member.avatarUrl || undefined,
+                          status: member.status,
+                        }}
                         size={38}
-                        name={member.displayName || member.userName}
-                        uri={member.avatarUrl || undefined}
-                        status={member.status ?? 'OFFLINE'}
                       />
 
                       <View style={styles.memberInfo}>
