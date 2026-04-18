@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   Alert,
   Clipboard,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -399,71 +401,78 @@ export default function DMChatScreen() {
         )}
       </View>
 
-      {/* Messages list (inverted = newest at bottom) */}
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        renderItem={renderMessage}
-        keyExtractor={keyExtractor}
-        inverted
-        onEndReached={handleEndReached}
-        onEndReachedThreshold={0.3}
-        ListFooterComponent={
-          isLoadingMessages ? (
-            <ActivityIndicator
-              color={DiscordColors.blurple}
-              style={styles.loader}
-            />
-          ) : null
-        }
-        ListEmptyComponent={
-          !isLoadingMessages ? (
-            <View style={styles.emptyContainer}>
-              {otherUser && (
-                <>
-                  <Avatar
-                    name={otherUser.displayName || otherUser.username}
-                    uri={otherUser.avatar}
-                    size={72}
-                  />
-                  <ThemedText style={styles.emptyTitle}>
-                    {otherUser.displayName || otherUser.username}
-                  </ThemedText>
-                  <ThemedText style={styles.emptySubtitle}>
-                    This is the beginning of your direct message history with{' '}
-                    <ThemedText style={styles.emptyBold}>
-                      @{otherUser.username}
-                    </ThemedText>
-                    .
-                  </ThemedText>
-                </>
-              )}
-            </View>
-          ) : null
-        }
-        contentContainerStyle={
-          messages.length === 0 ? styles.emptyList : styles.listContent
-        }
-      />
-
-      {/* Chat input or Edit input */}
-      {editingMessage ? (
-        <EditMessageInput
-          originalContent={editingMessage.content}
-          onSave={handleEditSave}
-          onCancel={() => setEditingMessage(null)}
-        />
-      ) : (
-        <ChatInput
-          onSend={handleSend}
-          placeholder={
-            otherUser
-              ? `Message @${otherUser.username}`
-              : 'Send a message...'
+      <KeyboardAvoidingView
+        style={styles.chatArea}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
+      >
+        {/* Messages list (inverted = newest at bottom) */}
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          renderItem={renderMessage}
+          keyExtractor={keyExtractor}
+          inverted
+          onEndReached={handleEndReached}
+          onEndReachedThreshold={0.3}
+          keyboardShouldPersistTaps="handled"
+          ListFooterComponent={
+            isLoadingMessages ? (
+              <ActivityIndicator
+                color={DiscordColors.blurple}
+                style={styles.loader}
+              />
+            ) : null
           }
-          disabled={isSending}
+          ListEmptyComponent={
+            !isLoadingMessages ? (
+              <View style={styles.emptyContainer}>
+                {otherUser && (
+                  <>
+                    <Avatar
+                      name={otherUser.displayName || otherUser.username}
+                      uri={otherUser.avatar}
+                      size={72}
+                    />
+                    <ThemedText style={styles.emptyTitle}>
+                      {otherUser.displayName || otherUser.username}
+                    </ThemedText>
+                    <ThemedText style={styles.emptySubtitle}>
+                      This is the beginning of your direct message history with{' '}
+                      <ThemedText style={styles.emptyBold}>
+                        @{otherUser.username}
+                      </ThemedText>
+                      .
+                    </ThemedText>
+                  </>
+                )}
+              </View>
+            ) : null
+          }
+          contentContainerStyle={
+            messages.length === 0 ? styles.emptyList : styles.listContent
+          }
         />
-      )}
+
+        {/* Chat input or Edit input */}
+        {editingMessage ? (
+          <EditMessageInput
+            originalContent={editingMessage.content}
+            onSave={handleEditSave}
+            onCancel={() => setEditingMessage(null)}
+          />
+        ) : (
+          <ChatInput
+            onSend={handleSend}
+            placeholder={
+              otherUser
+                ? `Message @${otherUser.username}`
+                : 'Send a message...'
+            }
+            disabled={isSending}
+          />
+        )}
+      </KeyboardAvoidingView>
 
       {/* Action Sheet */}
       <MessageActionSheet
@@ -506,6 +515,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: DiscordColors.primaryBackground,
+  },
+  chatArea: {
+    flex: 1,
   },
   header: {
     flexDirection: 'row',

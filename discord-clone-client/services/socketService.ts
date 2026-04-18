@@ -1,4 +1,5 @@
 import { Client, IMessage, StompSubscription } from '@stomp/stompjs';
+import { resolveSocketUrl } from '@/api/networkConfig';
 import { getAuthToken } from './authSession';
 
 // Polyfills for TextEncoder/Decoder required by STOMPjs v7
@@ -11,17 +12,11 @@ if (typeof global.TextDecoder === 'undefined') {
   (global as any).TextDecoder = TextDecoder;
 }
 
-const normalizeSocketUrl = (url: string): string => {
-  const trimmed = url.trim();
-  if (trimmed.endsWith('/ws')) {
-    return `${trimmed}-native`;
-  }
-  return trimmed;
-};
+const SOCKET_URL = resolveSocketUrl();
 
-const RAW_SOCKET_URL =
-  process.env.EXPO_PUBLIC_SOCKET_URL || 'ws://10.0.2.2:8085/ws-native';
-const SOCKET_URL = normalizeSocketUrl(RAW_SOCKET_URL);
+if (__DEV__) {
+  console.log('🌐 SOCKET_URL đang kết nối:', SOCKET_URL);
+}
 
 class SocketService {
   private client: Client | null = null;
@@ -43,7 +38,7 @@ class SocketService {
         connectHeaders: token ? { Authorization: `Bearer ${token}` } : {},
         reconnectDelay: 5000,
         forceBinaryWSFrames: true,
-        appendMissingNULLOnIncoming: true,
+        appendMissingNULLonIncoming: true,
         debug: (msg) => {
           console.log('STOMP RAW:', msg);
         },

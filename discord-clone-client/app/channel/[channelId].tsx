@@ -7,6 +7,8 @@ import {
   Pressable,
   Alert,
   Clipboard,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons, Feather } from '@expo/vector-icons';
@@ -378,57 +380,64 @@ export default function ChannelChatScreen() {
         </View>
       </View>
 
-      {/* Messages list (inverted = newest at bottom) */}
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        renderItem={renderMessage}
-        keyExtractor={keyExtractor}
-        inverted
-        onEndReached={handleEndReached}
-        onEndReachedThreshold={0.3}
-        ListFooterComponent={
-          isLoadingMessages ? (
-            <ActivityIndicator
-              color={DiscordColors.blurple}
-              style={styles.loader}
-            />
-          ) : null
-        }
-        ListEmptyComponent={
-          !isLoadingMessages ? (
-            <View style={styles.emptyContainer}>
-              <View style={styles.hashCircle}>
-                <Feather name="hash" size={40} color={DiscordColors.textPrimary} />
+      <KeyboardAvoidingView
+        style={styles.chatArea}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
+      >
+        {/* Messages list (inverted = newest at bottom) */}
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          renderItem={renderMessage}
+          keyExtractor={keyExtractor}
+          inverted
+          onEndReached={handleEndReached}
+          onEndReachedThreshold={0.3}
+          keyboardShouldPersistTaps="handled"
+          ListFooterComponent={
+            isLoadingMessages ? (
+              <ActivityIndicator
+                color={DiscordColors.blurple}
+                style={styles.loader}
+              />
+            ) : null
+          }
+          ListEmptyComponent={
+            !isLoadingMessages ? (
+              <View style={styles.emptyContainer}>
+                <View style={styles.hashCircle}>
+                  <Feather name="hash" size={40} color={DiscordColors.textPrimary} />
+                </View>
+                <ThemedText style={styles.emptyTitle}>
+                  Welcome to channel!
+                </ThemedText>
+                <ThemedText style={styles.emptySubtitle}>
+                  This is the start of the channel.
+                </ThemedText>
               </View>
-              <ThemedText style={styles.emptyTitle}>
-                Welcome to channel!
-              </ThemedText>
-              <ThemedText style={styles.emptySubtitle}>
-                This is the start of the channel.
-              </ThemedText>
-            </View>
-          ) : null
-        }
-        contentContainerStyle={
-          messages.length === 0 ? styles.emptyList : styles.listContent
-        }
-      />
+            ) : null
+          }
+          contentContainerStyle={
+            messages.length === 0 ? styles.emptyList : styles.listContent
+          }
+        />
 
-      {/* Chat input or Edit input */}
-      {editingMessage ? (
-        <EditMessageInput
-          originalContent={editingMessage.content}
-          onSave={handleEditSave}
-          onCancel={() => setEditingMessage(null)}
-        />
-      ) : (
-        <ChatInput
-          onSend={handleSend}
-          placeholder={`Message in #${channelInfo?.name || 'channel'}`}
-          disabled={isSending}
-        />
-      )}
+        {/* Chat input or Edit input */}
+        {editingMessage ? (
+          <EditMessageInput
+            originalContent={editingMessage.content}
+            onSave={handleEditSave}
+            onCancel={() => setEditingMessage(null)}
+          />
+        ) : (
+          <ChatInput
+            onSend={handleSend}
+            placeholder={`Message in #${channelInfo?.name || 'channel'}`}
+            disabled={isSending}
+          />
+        )}
+      </KeyboardAvoidingView>
 
       {/* Action Sheet */}
       <MessageActionSheet
@@ -459,6 +468,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: DiscordColors.primaryBackground,
+  },
+  chatArea: {
+    flex: 1,
   },
   header: {
     flexDirection: 'row',
