@@ -49,14 +49,15 @@ class _PlaceholderChartState extends State<PlaceholderChart> with SingleTickerPr
       child: Stack(
         children: [
           // Animated fake bars
-          AnimatedBuilder(
-            animation: _anim,
-            builder: (_, __) => CustomPaint(
-              painter: _FakeBarPainter(
-                progress: _anim.value,
-                accentColor: widget.accentColor,
+          Positioned.fill(
+            child: AnimatedBuilder(
+              animation: _anim,
+              builder: (_, __) => CustomPaint(
+                painter: _FakeBarPainter(
+                  progress: _anim.value,
+                  accentColor: widget.accentColor,
+                ),
               ),
-              size: Size.infinite,
             ),
           ),
           // Overlay with label

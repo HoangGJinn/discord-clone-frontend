@@ -38,9 +38,11 @@ class AdminApp extends StatelessWidget {
 Future<Widget> resolveStartup() async {
   final prefs = await SharedPreferences.getInstance();
   final token = prefs.getString('auth_token') ?? '';
-  final userName = prefs.getString('auth_user_name') ?? 'Admin';
-  if (token.isNotEmpty) {
-    return AdminShell(adminName: userName);
+  final displayName = prefs.getString('auth_display_name');
+  final roles = prefs.getStringList('auth_roles') ?? [];
+
+  if (token.isNotEmpty && roles.contains('ADMIN')) {
+    return AdminShell(adminName: displayName ?? 'Admin');
   }
   return const LoginScreen();
 }

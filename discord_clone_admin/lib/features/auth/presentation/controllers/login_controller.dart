@@ -1,4 +1,5 @@
 import 'package:discord_clone_admin/features/auth/data/repositories/auth_repository.dart';
+import 'package:discord_clone_admin/features/auth/domain/entities/auth_session.dart';
 import 'package:discord_clone_admin/features/auth/domain/entities/login_credentials.dart';
 import 'package:discord_clone_admin/features/auth/domain/use_cases/validate_login_use_case.dart';
 import 'package:flutter/foundation.dart';

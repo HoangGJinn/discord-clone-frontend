@@ -1,6 +1,8 @@
 import 'package:discord_clone_admin/core/theme/app_colors.dart';
 import 'package:discord_clone_admin/features/audit_logs/presentation/screens/audit_logs_screen.dart';
 import 'package:discord_clone_admin/features/dashboard/presentation/screens/dashboard_screen.dart';
+import 'package:discord_clone_admin/features/moderation/presentation/screens/blacklist_screen.dart';
+import 'package:discord_clone_admin/features/moderation/presentation/screens/reported_messages_screen.dart';
 import 'package:discord_clone_admin/features/revenue/presentation/screens/revenue_screen.dart';
 import 'package:discord_clone_admin/features/servers/presentation/screens/servers_screen.dart';
 import 'package:discord_clone_admin/features/users/presentation/screens/users_screen.dart';
@@ -28,6 +30,7 @@ class _AdminShellState extends State<AdminShell> {
     _NavItem(icon: Icons.dashboard_rounded, label: 'Dashboard'),
     _NavItem(icon: Icons.dns_rounded, label: 'Servers'),
     _NavItem(icon: Icons.people_alt_rounded, label: 'Users'),
+    _NavItem(icon: Icons.shield_rounded, label: 'Moderation'),
     _NavItem(icon: Icons.attach_money_rounded, label: 'Doanh Thu'),
     _NavItem(icon: Icons.history_rounded, label: 'Audit Logs'),
   ];
@@ -36,6 +39,7 @@ class _AdminShellState extends State<AdminShell> {
     DashboardScreen(),
     ServersScreen(),
     UsersScreen(),
+    ModerationHomeScreen(),
     RevenueScreen(),
     AuditLogsScreen(),
   ];
@@ -275,4 +279,63 @@ class _NavItem {
   const _NavItem({required this.icon, required this.label});
   final IconData icon;
   final String label;
+}
+
+// ── Moderation Home Screen (Sub-tabs) ──────────────────────────
+class ModerationHomeScreen extends StatefulWidget {
+  const ModerationHomeScreen({super.key});
+
+  @override
+  State<ModerationHomeScreen> createState() => _ModerationHomeScreenState();
+}
+
+class _ModerationHomeScreenState extends State<ModerationHomeScreen> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Tab bar
+        Container(
+          decoration: const BoxDecoration(
+            border: Border(bottom: BorderSide(color: AppColors.divider)),
+          ),
+          child: TabBar(
+            controller: _tabController,
+            labelColor: AppColors.blurple,
+            unselectedLabelColor: AppColors.textMuted,
+            indicatorColor: AppColors.blurple,
+            indicatorSize: TabBarIndicatorSize.label,
+            tabs: const [
+              Tab(text: 'Báo cáo vi phạm'),
+              Tab(text: 'Blacklist'),
+            ],
+          ),
+        ),
+        // Tab content
+        Expanded(
+          child: TabBarView(
+            controller: _tabController,
+            children: const [
+              ReportedMessagesScreen(),
+              BlacklistScreen(),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 }

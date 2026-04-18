@@ -1,6 +1,7 @@
 import 'package:discord_clone_admin/core/theme/app_colors.dart';
 import 'package:discord_clone_admin/core/theme/app_spacing.dart';
 import 'package:discord_clone_admin/features/auth/presentation/controllers/login_controller.dart';
+import 'package:discord_clone_admin/features/auth/data/repositories/auth_repository.dart';
 import 'package:discord_clone_admin/shared/widgets/app_text_field.dart';
 import 'package:discord_clone_admin/shared/widgets/primary_button.dart';
 import 'package:flutter/material.dart';
@@ -35,10 +36,15 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
 
     if (result.success) {
-      // Navigate to AdminShell, passing the admin's username
+      // Lấy displayName từ AuthRepository
+      final authRepo = AuthRepository();
+      final displayName = await authRepo.getDisplayName();
+      final nameToShow = displayName ?? userName;
+
+      // Navigate to AdminShell, passing the admin's display name
       Navigator.of(context).pushReplacementNamed(
         '/shell',
-        arguments: userName,
+        arguments: nameToShow,
       );
       return;
     }
@@ -143,14 +149,14 @@ class _LoginHeader extends StatelessWidget {
           radius: 41,
           backgroundColor: AppColors.surface,
           child: Icon(
-            Icons.chat_bubble_rounded,
+            Icons.admin_panel_settings_rounded,
             size: 42,
             color: AppColors.blurple,
           ),
         ),
         SizedBox(height: AppSpacing.lg),
         Text(
-          'Đăng nhập',
+          'Admin Panel',
           style: TextStyle(
             color: AppColors.textPrimary,
             fontSize: 28,
@@ -159,7 +165,7 @@ class _LoginHeader extends StatelessWidget {
         ),
         SizedBox(height: AppSpacing.xs),
         Text(
-          'Chào mừng quay lại Discord Clone Admin',
+          'Đăng nhập để quản lý hệ thống',
           style: TextStyle(
             color: AppColors.textSecondary,
             fontSize: 15,
