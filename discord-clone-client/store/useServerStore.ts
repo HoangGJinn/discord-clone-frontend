@@ -3,6 +3,7 @@ import {
   createServer,
   CreateServerInput,
   getMyServers,
+  joinServer,
   ServerResponse,
 } from '@/services/serverService';
 
@@ -11,12 +12,14 @@ interface ServerState {
   activeServerId: number | null;
   isLoadingServers: boolean;
   isCreatingServer: boolean;
+  isJoiningServer: boolean;
   error: string | null;
 }
 
 interface ServerActions {
   fetchServers: () => Promise<void>;
   createNewServer: (payload: CreateServerInput) => Promise<ServerResponse | null>;
+  joinServerByCode: (inviteCode: string) => Promise<ServerResponse | null>;
   setActiveServerId: (serverId: number | null) => void;
   clearError: () => void;
 }
@@ -44,6 +47,7 @@ export const useServerStore = create<ServerStore>((set, get) => ({
   activeServerId: null,
   isLoadingServers: false,
   isCreatingServer: false,
+  isJoiningServer: false,
   error: null,
 
   fetchServers: async () => {
@@ -81,6 +85,25 @@ export const useServerStore = create<ServerStore>((set, get) => ({
       set({
         isCreatingServer: false,
         error: normalizeError(error, 'Failed to create server.'),
+      });
+      return null;
+    }
+  },
+
+  joinServerByCode: async (inviteCode: string) => {
+    set({ isJoiningServer: true, error: null });
+    try {
+      const joinedServer = await joinServer(inviteCode);
+      set((state) => ({
+        servers: [joinedServer, ...state.servers.filter((s) => s.id !== joinedServer.id)],
+        activeServerId: joinedServer.id,
+        isJoiningServer: false,
+      }));
+      return joinedServer;
+    } catch (error) {
+      set({
+        isJoiningServer: false,
+        error: normalizeError(error, 'Failed to join server. Check the invite code.'),
       });
       return null;
     }
