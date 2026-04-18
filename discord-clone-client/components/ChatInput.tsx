@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   Platform,
-  KeyboardAvoidingView,
   Alert,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
@@ -101,10 +100,7 @@ export function ChatInput({
   }, []);
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-    >
+    <View>
       {/* Attachment preview */}
       {pendingAttachment && (
         <AttachmentPreview
@@ -156,7 +152,7 @@ export function ChatInput({
           />
         </TouchableOpacity>
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
