@@ -3,7 +3,7 @@ import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
-import { Avatar } from './Avatar';
+import { UserAvatarWithActions } from './UserAvatarWithActions';
 import { ThemedText } from './themed-text';
 import { ReactionBar } from './ReactionBar';
 import { ImageAttachment } from './ImageAttachment';
@@ -62,9 +62,15 @@ function MessageBubbleInner({
         {/* Avatar column */}
         <View style={styles.avatarColumn}>
           {showHeader ? (
-            <Avatar
-              name={message.sender.username}
-              uri={message.sender.avatar}
+            <UserAvatarWithActions
+              user={{
+                id: message.sender.id,
+                username: message.sender.username,
+                displayName: message.sender.displayName,
+                avatar: message.sender.avatar,
+                status: message.sender.status,
+                bio: message.sender.bio,
+              }}
               size={40}
             />
           ) : (

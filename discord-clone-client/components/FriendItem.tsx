@@ -1,16 +1,20 @@
 import React from "react";
 import { StyleSheet, View } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
-import { Avatar } from "./Avatar";
+import { UserAvatarWithActions } from "./UserAvatarWithActions";
 import { ThemedText } from "./themed-text";
 import { DiscordColors, Spacing } from "@/constants/theme";
 import { DiscordButton } from "./DiscordButton";
 
 export interface FriendItemProps {
-  id: string;
+  id: string | number;
+  userId: string | number;
   username: string;
+  displayName?: string;
   avatar?: string;
   statusText?: string;
+  presenceStatus?: string;
+  bio?: string;
   type: "ALL" | "PENDING" | "SENT";
   onAccept?: () => void;
   onReject?: () => void;
@@ -19,9 +23,13 @@ export interface FriendItemProps {
 }
 
 export const FriendItem: React.FC<FriendItemProps> = ({
+  userId,
   username,
+  displayName,
   avatar,
   statusText,
+  presenceStatus,
+  bio,
   type,
   onAccept,
   onReject,
@@ -33,14 +41,22 @@ export const FriendItem: React.FC<FriendItemProps> = ({
       entering={FadeInDown.delay(index * 50).springify()}
       style={styles.listItem}
     >
-      <Avatar name={username} uri={avatar} status="ONLINE" size={44} />
+      <UserAvatarWithActions
+        user={{
+          id: userId,
+          username,
+          displayName,
+          avatar,
+          status: presenceStatus,
+          bio,
+        }}
+        size={44}
+      />
       <View style={styles.itemContent}>
         <ThemedText style={styles.usernameText}>
-          {username}
+          {displayName || username}
         </ThemedText>
-        <ThemedText style={styles.statusText}>
-          {statusText || "Online"}
-        </ThemedText>
+        <ThemedText style={styles.statusText}>{statusText || `@${username}`}</ThemedText>
       </View>
 
       {type === "PENDING" && (

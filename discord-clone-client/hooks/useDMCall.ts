@@ -33,9 +33,20 @@ export function useDMCall(conversationId: string, currentUserId: string) {
 
     const destination = `/topic/dm/call/${conversationId}`;
 
-    const subscription = socketService.subscribe(destination, (frame) => {
+    void socketService.subscribe(destination, (rawMessage) => {
       try {
-        const message = JSON.parse(frame.body);
+        const message =
+          typeof rawMessage === 'string'
+            ? JSON.parse(rawMessage)
+            : (rawMessage as {
+                type?: string;
+                callState?: DMCallState;
+              });
+
+        if (!message || typeof message !== 'object' || !message.type) {
+          return;
+        }
+
         console.log('[useDMCall] WS message received:', message);
 
         switch (message.type) {

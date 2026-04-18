@@ -2,6 +2,7 @@ import React, { memo } from 'react';
 import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { Avatar } from './Avatar';
+import { UserAvatarWithActions } from './UserAvatarWithActions';
 import { ThemedText } from './themed-text';
 import { DiscordColors, Spacing } from '@/constants/theme';
 import { SearchServer, SearchChannel, SearchMember } from '@/types/search';
@@ -91,14 +92,15 @@ interface MemberItemProps {
 function SearchMemberItemInner({ member, onPress }: MemberItemProps) {
   return (
     <TouchableOpacity style={styles.item} onPress={onPress} activeOpacity={0.6}>
-      <Avatar
-        name={member.displayName || member.username}
-        uri={member.avatar}
+      <UserAvatarWithActions
+        user={{
+          id: member.id,
+          username: member.username,
+          displayName: member.displayName,
+          avatar: member.avatar,
+          status: member.status,
+        }}
         size={40}
-        status={
-          (member.status?.toUpperCase() as 'ONLINE' | 'IDLE' | 'DND' | 'OFFLINE') ||
-          'OFFLINE'
-        }
       />
       <View style={[styles.info, { marginLeft: Spacing.md }]}>
         <ThemedText style={styles.title} numberOfLines={1}>

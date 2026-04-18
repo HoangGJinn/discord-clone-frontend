@@ -52,6 +52,106 @@ interface DMActions {
 }
 
 type DMStore = DMState & DMActions;
+
+const normalizeFrontendMessage = (message: DirectMessage): DirectMessage => {
+  const rawSender = (message.sender ?? {}) as any;
+
+  return {
+    ...message,
+    id: String(message.id),
+    conversationId: String(message.conversationId),
+    sender: {
+      id: String(rawSender.id ?? ''),
+      username: rawSender.username || 'Unknown',
+      email: rawSender.email || '',
+      avatar: rawSender.avatar || rawSender.avatarUrl || undefined,
+      displayName: rawSender.displayName || undefined,
+      status: rawSender.status || undefined,
+      role: Array.isArray(rawSender.role)
+        ? rawSender.role
+        : Array.isArray(rawSender.roles)
+          ? rawSender.roles
+          : [],
+      bio: rawSender.bio || undefined,
+      birthDate: rawSender.birthDate || undefined,
+      country: rawSender.country || undefined,
+      pronouns: rawSender.pronouns || undefined,
+    },
+    createdAt: String(message.createdAt),
+    updatedAt: message.updatedAt ? String(message.updatedAt) : undefined,
+  };
+};
+
+const enrichSenderFromConversation = (
+  message: DirectMessage,
+  conversations: Conversation[],
+): DirectMessage => {
+  const conversation = conversations.find((c) => c.id === message.conversationId);
+  if (!conversation) {
+    return message;
+  }
+
+  const senderId = String(message.sender.id || '');
+  const participantOneId = String(conversation.participantOne?.id || '');
+  const participantTwoId = String(conversation.participantTwo?.id || '');
+
+  const participant = senderId === participantOneId
+    ? conversation.participantOne
+    : senderId === participantTwoId
+      ? conversation.participantTwo
+      : null;
+
+  if (!participant) {
+    return message;
+  }
+
+  return {
+    ...message,
+    sender: {
+      ...message.sender,
+      username: message.sender.username && message.sender.username !== 'Unknown'
+        ? message.sender.username
+        : participant.username,
+      displayName: message.sender.displayName || participant.displayName,
+      avatar: message.sender.avatar || participant.avatar,
+      status: message.sender.status || participant.status,
+    },
+  };
+};
+
+const normalizeIncomingMessage = (
+  message: DirectMessage | BackendDirectMessageResponse,
+  conversations: Conversation[],
+): DirectMessage => {
+  const raw = message as any;
+  const looksLikeBackend =
+    typeof raw?.senderId === 'number' ||
+    typeof raw?.receiverId === 'number' ||
+    Boolean(raw?.sender?.avatarUrl);
+
+  const normalized = looksLikeBackend
+    ? transformDirectMessage(message as BackendDirectMessageResponse)
+    : normalizeFrontendMessage(message as DirectMessage);
+
+  return enrichSenderFromConversation(normalized, conversations);
+};
+
+const dedupeMessagesById = (messages: DirectMessage[]): DirectMessage[] => {
+  const seen = new Set<string>();
+  const result: DirectMessage[] = [];
+
+  for (const message of messages) {
+    const key = String(message.id);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(message);
+  }
+
+  return result;
+};
+
 export const useDMStore = create<DMStore>((set, get) => ({
   // Initial state
   conversations: [],
@@ -142,9 +242,11 @@ export const useDMStore = create<DMStore>((set, get) => ({
 
       const isLastPage = Array.isArray(data) ? true : (data.last ?? true);
 
+      const mergedMessages =
+        page === 0 ? newMessages : [...get().messages, ...newMessages];
+
       set({
-        messages:
-          page === 0 ? newMessages : [...get().messages, ...newMessages],
+        messages: dedupeMessagesById(mergedMessages),
         currentPage: page,
         hasMoreMessages: !isLastPage,
         isLoadingMessages: false,
@@ -215,7 +317,7 @@ export const useDMStore = create<DMStore>((set, get) => ({
 
       // Prepend to messages (newest first in inverted list)
       set((state) => ({
-        messages: [sentMessage, ...state.messages],
+        messages: dedupeMessagesById([sentMessage, ...state.messages]),
         isSending: false,
       }));
 
@@ -232,23 +334,17 @@ export const useDMStore = create<DMStore>((set, get) => ({
   // ── Real-time Actions ────────────────────────────────────
 
   addRealtimeMessage: (message: DirectMessage | BackendDirectMessageResponse) => {
-    // Check if message needs transformation (backend format has senderId as number)
-    const needsTransform =
-      "senderId" in message &&
-      typeof (message as BackendDirectMessageResponse).senderId === "number" &&
-      !("sender" in message && message.sender && "username" in message.sender);
-
-    const transformedMessage = needsTransform
-      ? transformDirectMessage(message as BackendDirectMessageResponse)
-      : (message as DirectMessage);
+    const transformedMessage = normalizeIncomingMessage(message, get().conversations);
 
     set((state) => {
-      // Deduplicate: skip if message already exists
-      const exists = state.messages.some((m) => m.id === transformedMessage.id);
+      // Deduplicate real-time events against local list
+      const exists = state.messages.some(
+        (m) => String(m.id) === String(transformedMessage.id),
+      );
       if (exists) return state;
 
       return {
-        messages: [transformedMessage, ...state.messages],
+        messages: dedupeMessagesById([transformedMessage, ...state.messages]),
       };
     });
 

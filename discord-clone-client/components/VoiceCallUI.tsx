@@ -28,6 +28,7 @@ import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { ThemedText } from './themed-text';
 import { Avatar } from './Avatar';
+import { UserAvatarWithActions } from './UserAvatarWithActions';
 import { DiscordColors, Spacing } from '@/constants/theme';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useDMCall } from '@/hooks/useDMCall';
@@ -336,7 +337,19 @@ function VoiceCallUIInner({
           <Animated.View entering={FadeIn.duration(300)} style={styles.connectingContainer}>
             <RingAnimation size={160} />
             <View style={styles.connectingAvatar}>
-              <Avatar name={remoteUserName} uri={remoteUserAvatar} size={100} />
+              {remoteUserId ? (
+                <UserAvatarWithActions
+                  user={{
+                    id: remoteUserId,
+                    username: remoteUserName,
+                    displayName: remoteUserName,
+                    avatar: remoteUserAvatar,
+                  }}
+                  size={100}
+                />
+              ) : (
+                <Avatar name={remoteUserName} uri={remoteUserAvatar} size={100} />
+              )}
             </View>
             <ThemedText style={styles.connectingText}>Calling...</ThemedText>
             <ThemedText style={styles.connectingName}>{remoteUserName}</ThemedText>
@@ -364,7 +377,19 @@ function VoiceCallUIInner({
           <Animated.View entering={FadeIn.duration(300)} style={styles.incomingContainer}>
             <RingAnimation size={160} />
             <View style={styles.incomingAvatar}>
-              <Avatar name={remoteUserName} uri={remoteUserAvatar} size={100} />
+              {remoteUserId ? (
+                <UserAvatarWithActions
+                  user={{
+                    id: remoteUserId,
+                    username: remoteUserName,
+                    displayName: remoteUserName,
+                    avatar: remoteUserAvatar,
+                  }}
+                  size={100}
+                />
+              ) : (
+                <Avatar name={remoteUserName} uri={remoteUserAvatar} size={100} />
+              )}
             </View>
             <ThemedText style={styles.incomingTitle}>Incoming voice call</ThemedText>
             <ThemedText style={styles.incomingName}>{remoteUserName}</ThemedText>
@@ -429,7 +454,19 @@ function VoiceCallUIInner({
             <View style={styles.remoteCard}>
               <View style={styles.remoteVideoArea}>
                 <View style={styles.remoteBg}>
-                  <Avatar name={remoteUserName} uri={remoteUserAvatar} size={140} />
+                  {remoteUserId ? (
+                    <UserAvatarWithActions
+                      user={{
+                        id: remoteUserId,
+                        username: remoteUserName,
+                        displayName: remoteUserName,
+                        avatar: remoteUserAvatar,
+                      }}
+                      size={140}
+                    />
+                  ) : (
+                    <Avatar name={remoteUserName} uri={remoteUserAvatar} size={140} />
+                  )}
                 </View>
                 {isInCall && <Animated.View style={[styles.speakingGlow, pulseStyle]} />}
                 <View style={styles.remoteUserInfo}>
