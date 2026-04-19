@@ -58,7 +58,8 @@ function useDMWebSocket(conversationId: string) {
 export default function DMChatScreen() {
   const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
   const router = useRouter();
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef = useRef<FlatList<DirectMessage>>(null);
+  const pendingScrollIndexRef = useRef<number | null>(null);
 
   const user = useAuthStore((s) => s.user);
   const {
@@ -81,6 +82,7 @@ export default function DMChatScreen() {
   const [selectedMessage, setSelectedMessage] = useState<DirectMessage | null>(null);
   const [actionSheetVisible, setActionSheetVisible] = useState(false);
   const [editingMessage, setEditingMessage] = useState<DirectMessage | null>(null);
+  const [replyingToMessage, setReplyingToMessage] = useState<DirectMessage | null>(null);
   const [emojiPickerVisible, setEmojiPickerVisible] = useState(false);
   const [emojiTargetMessageId, setEmojiTargetMessageId] = useState<string | null>(null);
 
@@ -131,9 +133,9 @@ export default function DMChatScreen() {
 
   // ── Send message handler ───────────────────────────────
   const handleSend = useCallback(
-    (content: string) => {
+    (content: string, attachments?: DirectMessage['attachments'], replyToId?: string) => {
       if (!conversationId) return;
-      sendMessage({ conversationId, content });
+      sendMessage({ conversationId, content, attachments, replyToId });
     },
     [conversationId, sendMessage],
   );
@@ -158,6 +160,15 @@ export default function DMChatScreen() {
       icon: 'copy-outline' as const,
       onPress: () => {
         Clipboard.setString(selectedMessage.content);
+      },
+    });
+
+    actions.push({
+      id: 'reply',
+      label: 'Reply',
+      icon: 'return-up-back-outline' as const,
+      onPress: () => {
+        setReplyingToMessage(selectedMessage);
       },
     });
 
@@ -302,6 +313,7 @@ export default function DMChatScreen() {
             onToggleReaction={handleToggleReaction}
             onAddReaction={handleAddReaction}
             currentUserId={user?.id}
+            onPressReplyTarget={scrollToMessageById}
           />
         </View>
       );
@@ -317,6 +329,21 @@ export default function DMChatScreen() {
       loadMoreMessages();
     }
   }, [hasMoreMessages, isLoadingMessages, loadMoreMessages]);
+
+  const scrollToMessageById = useCallback((targetMessageId: string) => {
+    const targetIndex = messages.findIndex((item) => item.id === targetMessageId);
+    if (targetIndex < 0) {
+      Alert.alert('Not loaded yet', 'Original message is not loaded in current list. Scroll up to load older messages.');
+      return;
+    }
+
+    pendingScrollIndexRef.current = targetIndex;
+    flatListRef.current?.scrollToIndex({
+      index: targetIndex,
+      animated: true,
+      viewPosition: 0.45,
+    });
+  }, [messages]);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -434,6 +461,21 @@ export default function DMChatScreen() {
           onEndReached={handleEndReached}
           onEndReachedThreshold={0.3}
           keyboardShouldPersistTaps="handled"
+          onScrollToIndexFailed={(info) => {
+            const retryIndex = pendingScrollIndexRef.current ?? info.index;
+            flatListRef.current?.scrollToOffset({
+              offset: info.averageItemLength * retryIndex,
+              animated: true,
+            });
+
+            setTimeout(() => {
+              flatListRef.current?.scrollToIndex({
+                index: retryIndex,
+                animated: true,
+                viewPosition: 0.45,
+              });
+            }, 120);
+          }}
           ListFooterComponent={
             isLoadingMessages ? (
               <ActivityIndicator
@@ -497,6 +539,22 @@ export default function DMChatScreen() {
                 : 'Send a message...'
             }
             disabled={isSending}
+            replyToMessage={
+              replyingToMessage
+                ? {
+                    id: replyingToMessage.id,
+                    content: replyingToMessage.content,
+                    attachments: replyingToMessage.attachments,
+                    sender: {
+                      id: replyingToMessage.sender.id,
+                      username: replyingToMessage.sender.username,
+                      displayName: replyingToMessage.sender.displayName,
+                    },
+                    deleted: replyingToMessage.deleted,
+                  }
+                : null
+            }
+            onCancelReply={() => setReplyingToMessage(null)}
           />
         )}
       </KeyboardAvoidingView>

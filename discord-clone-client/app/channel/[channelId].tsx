@@ -55,7 +55,8 @@ function useChannelWebSocket(channelId: string) {
 export default function ChannelChatScreen() {
   const { channelId } = useLocalSearchParams<{ channelId: string }>();
   const router = useRouter();
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef = useRef<FlatList<ChannelMessage>>(null);
+  const pendingScrollIndexRef = useRef<number | null>(null);
   const [channelInfo, setChannelInfo] = useState<ChannelResponse | null>(null);
 
   const user = useAuthStore((s) => s.user);
@@ -80,6 +81,7 @@ export default function ChannelChatScreen() {
   const [selectedMessage, setSelectedMessage] = useState<ChannelMessage | null>(null);
   const [actionSheetVisible, setActionSheetVisible] = useState(false);
   const [editingMessage, setEditingMessage] = useState<ChannelMessage | null>(null);
+  const [replyingToMessage, setReplyingToMessage] = useState<ChannelMessage | null>(null);
   const [emojiPickerVisible, setEmojiPickerVisible] = useState(false);
   const [emojiTargetMessageId, setEmojiTargetMessageId] = useState<string | null>(null);
 
@@ -116,11 +118,12 @@ export default function ChannelChatScreen() {
 
   // ── Send message handler ───────────────────────────────
   const handleSend = useCallback(
-    (content: string, attachmentUrls?: string[]) => {
+    (content: string, attachments?: ChannelMessage['attachments'], replyToId?: string) => {
       if (!channelId) return;
       sendMessage(channelId, {
         content,
-        attachments: attachmentUrls,
+        attachments,
+        replyToId,
       });
     },
     [channelId, sendMessage],
@@ -146,6 +149,15 @@ export default function ChannelChatScreen() {
       icon: 'copy-outline' as const,
       onPress: () => {
         Clipboard.setString(selectedMessage.content);
+      },
+    });
+
+    actions.push({
+      id: 'reply',
+      label: 'Reply',
+      icon: 'return-up-back-outline' as const,
+      onPress: () => {
+        setReplyingToMessage(selectedMessage);
       },
     });
 
@@ -304,6 +316,7 @@ export default function ChannelChatScreen() {
             onToggleReaction={handleToggleReaction}
             onAddReaction={handleAddReaction}
             currentUserId={user?.id}
+            onPressReplyTarget={scrollToMessageById}
           />
         </View>
       );
@@ -319,6 +332,21 @@ export default function ChannelChatScreen() {
       loadMoreMessages();
     }
   }, [hasMoreMessages, isLoadingMessages, loadMoreMessages]);
+
+  const scrollToMessageById = useCallback((targetMessageId: string) => {
+    const targetIndex = messages.findIndex((item) => item.id === targetMessageId);
+    if (targetIndex < 0) {
+      Alert.alert('Not loaded yet', 'Original message is not loaded in current list. Scroll up to load older messages.');
+      return;
+    }
+
+    pendingScrollIndexRef.current = targetIndex;
+    flatListRef.current?.scrollToIndex({
+      index: targetIndex,
+      animated: true,
+      viewPosition: 0.45,
+    });
+  }, [messages]);
 
   const handleOpenMembers = useCallback(() => {
     const serverId = channelInfo?.serverId;
@@ -395,6 +423,21 @@ export default function ChannelChatScreen() {
           onEndReached={handleEndReached}
           onEndReachedThreshold={0.3}
           keyboardShouldPersistTaps="handled"
+          onScrollToIndexFailed={(info) => {
+            const retryIndex = pendingScrollIndexRef.current ?? info.index;
+            flatListRef.current?.scrollToOffset({
+              offset: info.averageItemLength * retryIndex,
+              animated: true,
+            });
+
+            setTimeout(() => {
+              flatListRef.current?.scrollToIndex({
+                index: retryIndex,
+                animated: true,
+                viewPosition: 0.45,
+              });
+            }, 120);
+          }}
           ListFooterComponent={
             isLoadingMessages ? (
               <ActivityIndicator
@@ -435,6 +478,18 @@ export default function ChannelChatScreen() {
             onSend={handleSend}
             placeholder={`Message in #${channelInfo?.name || 'channel'}`}
             disabled={isSending}
+            replyToMessage={
+              replyingToMessage
+                ? {
+                    id: replyingToMessage.id,
+                    content: replyingToMessage.content,
+                    attachments: replyingToMessage.attachments,
+                    senderName: replyingToMessage.sender.displayName || replyingToMessage.sender.username,
+                    deleted: replyingToMessage.deleted,
+                  }
+                : null
+            }
+            onCancelReply={() => setReplyingToMessage(null)}
           />
         )}
       </KeyboardAvoidingView>

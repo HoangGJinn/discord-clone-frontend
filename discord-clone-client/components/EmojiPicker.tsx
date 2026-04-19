@@ -43,7 +43,7 @@ function EmojiPickerInner({ visible, onClose, onSelectEmoji }: EmojiPickerProps)
     >
       <Pressable style={styles.overlay} onPress={onClose}>
         <Animated.View
-          entering={SlideInDown.springify().damping(18)}
+          entering={SlideInDown.duration(180)}
           style={styles.container}
         >
           <Pressable onPress={(e) => e.stopPropagation()}>

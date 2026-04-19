@@ -53,6 +53,55 @@ interface DMActions {
 
 type DMStore = DMState & DMActions;
 
+const applyReactionAdd = (messages: DirectMessage[], messageId: string, userId: string, emoji: string): DirectMessage[] => {
+  return messages.map((message) => {
+    if (message.id !== messageId) {
+      return message;
+    }
+
+    const reactions = Array.isArray(message.reactions) ? [...message.reactions] : [];
+    const index = reactions.findIndex((item) => item.emoji === emoji);
+    if (index === -1) {
+      reactions.push({ emoji, count: 1, users: [userId] });
+      return { ...message, reactions };
+    }
+
+    const target = reactions[index];
+    const users = Array.isArray(target.users) ? target.users : [];
+    if (!users.includes(userId)) {
+      const nextUsers = [...users, userId];
+      reactions[index] = { ...target, users: nextUsers, count: nextUsers.length };
+    }
+
+    return { ...message, reactions };
+  });
+};
+
+const applyReactionRemove = (messages: DirectMessage[], messageId: string, userId: string, emoji: string): DirectMessage[] => {
+  return messages.map((message) => {
+    if (message.id !== messageId) {
+      return message;
+    }
+
+    const reactions = Array.isArray(message.reactions) ? [...message.reactions] : [];
+    const index = reactions.findIndex((item) => item.emoji === emoji);
+    if (index === -1) {
+      return message;
+    }
+
+    const target = reactions[index];
+    const users = Array.isArray(target.users) ? target.users : [];
+    const nextUsers = users.filter((id) => String(id) !== String(userId));
+    if (nextUsers.length === 0) {
+      reactions.splice(index, 1);
+    } else {
+      reactions[index] = { ...target, users: nextUsers, count: nextUsers.length };
+    }
+
+    return { ...message, reactions };
+  });
+};
+
 const normalizeFrontendMessage = (message: DirectMessage): DirectMessage => {
   const rawSender = (message.sender ?? {}) as any;
 
@@ -310,6 +359,8 @@ export const useDMStore = create<DMStore>((set, get) => ({
       const sendPayload: any = {
         conversationId: payload.conversationId,
         content: payload.content,
+        attachments: payload.attachments,
+        replyToId: payload.replyToId,
         ...(receiverId ? { receiverId: parseInt(receiverId, 10) } : {}),
       };
 
@@ -340,11 +391,17 @@ export const useDMStore = create<DMStore>((set, get) => ({
     const transformedMessage = normalizeIncomingMessage(message, get().conversations);
 
     set((state) => {
-      // Deduplicate real-time events against local list
       const exists = state.messages.some(
         (m) => String(m.id) === String(transformedMessage.id),
       );
-      if (exists) return state;
+
+      if (exists) {
+        return {
+          messages: state.messages.map((m) =>
+            String(m.id) === String(transformedMessage.id) ? transformedMessage : m,
+          ),
+        };
+      }
 
       return {
         messages: dedupeMessagesById([transformedMessage, ...state.messages]),
@@ -415,7 +472,16 @@ export const useDMStore = create<DMStore>((set, get) => ({
 
   addReaction: async (messageId: string, emoji: string) => {
     try {
-      await apiClient.post(`/direct-messages/${messageId}/reactions`, { emoji });
+      await apiClient.post(`/direct-messages/${messageId}/reactions`, null, {
+        params: { emoji },
+      });
+
+      const currentUserId = useAuthStore.getState().user?.id;
+      if (currentUserId) {
+        set((state) => ({
+          messages: applyReactionAdd(state.messages, messageId, String(currentUserId), emoji),
+        }));
+      }
     } catch (err: any) {
       set({ error: err.response?.data?.message || err.message });
     }
@@ -424,8 +490,15 @@ export const useDMStore = create<DMStore>((set, get) => ({
   removeReaction: async (messageId: string, emoji: string) => {
     try {
       await apiClient.delete(`/direct-messages/${messageId}/reactions`, {
-        data: { emoji },
+        params: { emoji },
       });
+
+      const currentUserId = useAuthStore.getState().user?.id;
+      if (currentUserId) {
+        set((state) => ({
+          messages: applyReactionRemove(state.messages, messageId, String(currentUserId), emoji),
+        }));
+      }
     } catch (err: any) {
       set({ error: err.response?.data?.message || err.message });
     }

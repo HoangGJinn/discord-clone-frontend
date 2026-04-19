@@ -6,7 +6,7 @@ import {
   TouchableOpacity,
   Platform,
 } from 'react-native';
-import Animated, { SlideInDown, FadeOut } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { ThemedText } from './themed-text';
@@ -44,7 +44,7 @@ export function EditMessageInput({
 
   return (
     <Animated.View
-      entering={SlideInDown.springify().damping(18)}
+      entering={FadeIn.duration(120)}
       exiting={FadeOut.duration(150)}
       style={styles.container}
     >

@@ -1,5 +1,6 @@
 import { User } from "@/store/useAuthStore";
-import { DirectMessage, Conversation, Reaction } from "@/types/dm";
+import { Attachment, DirectMessage, Conversation, Reaction, ReplyMessage } from "@/types/dm";
+import { normalizeAttachmentList } from "@/utils/attachments";
 
 // Backend UserResponse structure
 export interface BackendUserResponse {
@@ -28,7 +29,7 @@ export interface BackendDirectMessageResponse {
   sender?: BackendUserResponse;
   receiver?: BackendUserResponse;
   content: string;
-  attachments?: any[];
+  attachments?: Attachment[];
   reactions?: Record<string, number[]>; // emoji -> userIds array
   edited?: boolean;
   deleted?: boolean;
@@ -96,6 +97,21 @@ export function transformDirectMessage(
 ): DirectMessage {
   const sender = transformUser(msg.sender);
   const reactions = transformReactions(msg.reactions);
+  const replyToMessage: ReplyMessage | undefined = msg.replyToMessage
+    ? {
+        id: String(msg.replyToMessage.id),
+        content: msg.replyToMessage.content || "",
+        attachments: normalizeAttachmentList(msg.replyToMessage.attachments),
+        deleted: Boolean(msg.replyToMessage.deleted),
+        sender: msg.replyToMessage.sender
+          ? {
+              id: String(msg.replyToMessage.sender.id),
+              username: msg.replyToMessage.sender.username || "Unknown",
+              displayName: msg.replyToMessage.sender.displayName,
+            }
+          : undefined,
+      }
+    : undefined;
 
   return {
     id: msg.id,
@@ -107,9 +123,12 @@ export function transformDirectMessage(
       role: [],
     },
     content: msg.content,
-    attachments: msg.attachments,
+    attachments: normalizeAttachmentList(msg.attachments),
+    replyToId: msg.replyToId,
+    replyToMessage,
     reactions: reactions,
     edited: msg.edited,
+    deleted: msg.deleted,
     pinned: false,
     createdAt:
       typeof msg.createdAt === "string"
