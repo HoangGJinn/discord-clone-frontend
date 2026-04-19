@@ -1,5 +1,7 @@
 import apiClient from '@/api/client';
 import { Avatar } from '@/components/Avatar';
+import { BACKGROUND_EFFECTS, NAMEPLATE_EFFECTS } from '@/constants/profileEffects';
+import { Image } from 'expo-image';
 import { ThemedText } from '@/components/themed-text';
 import { DiscordColors, Spacing } from '@/constants/theme';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -104,6 +106,7 @@ export default function ProfileScreen() {
 
   const currentStatus = normalizeStatus(user.status);
   const statusOption = STATUS_OPTIONS.find((option) => option.value === currentStatus) || STATUS_OPTIONS[0];
+  const activeBgEffect = user.bannerEffectId ? BACKGROUND_EFFECTS.find(e => e.id === user.bannerEffectId) : null;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -119,6 +122,14 @@ export default function ProfileScreen() {
       >
         <View style={styles.banner}>
           <View style={[styles.bannerOverlay, { backgroundColor: avatarColor }]} />
+          {activeBgEffect && (
+            <Image
+              source={activeBgEffect.uri}
+              style={StyleSheet.absoluteFill}
+              pointerEvents="none"
+              contentFit="cover"
+            />
+          )}
 
           <View style={styles.bannerActions}>
             <TouchableOpacity style={styles.bannerIconBtn}>
@@ -147,6 +158,7 @@ export default function ProfileScreen() {
               uri={user.avatar}
               size={84}
               status={currentStatus}
+              avatarEffectId={user.avatarEffectId}
             />
           </TouchableOpacity>
 
@@ -155,8 +167,10 @@ export default function ProfileScreen() {
             <ThemedText style={styles.hobbyText}>Sở thích mới</ThemedText>
           </TouchableOpacity>
 
-          <ThemedText style={styles.displayName}>{user.displayName || user.username}</ThemedText>
-          <ThemedText style={styles.username}>@{user.username}</ThemedText>
+          <View style={styles.nameSection}>
+            <ThemedText style={styles.displayName}>{user.displayName || user.username}</ThemedText>
+            <ThemedText style={styles.username}>@{user.username}</ThemedText>
+          </View>
 
           <TouchableOpacity
             style={styles.editProfileBtn}
@@ -389,6 +403,12 @@ const styles = StyleSheet.create({
   profileHeader: {
     marginTop: -34,
     paddingHorizontal: Spacing.lg,
+    position: 'relative',
+    overflow: 'hidden',
+    paddingVertical: Spacing.md,
+  },
+  nameSection: {
+    marginTop: Spacing.md,
   },
   avatarWrap: {
     alignSelf: 'flex-start',

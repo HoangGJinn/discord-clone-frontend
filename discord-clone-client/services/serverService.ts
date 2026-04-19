@@ -27,6 +27,9 @@ export interface ServerMemberResponse {
   status?: 'ONLINE' | 'IDLE' | 'DND' | 'OFFLINE' | null;
   role: ServerMemberRole;
   joinedAt: string;
+  avatarEffectId?: string | null;
+  bannerEffectId?: string | null;
+  cardEffectId?: string | null;
 }
 
 export interface CategoryResponse {
@@ -66,6 +69,11 @@ export interface MemberSearchResult {
   role: ServerMemberRole;
   serverId: number;
   serverName: string;
+  avatarEffectId?: string | null;
+  bannerEffectId?: string | null;
+  cardEffectId?: string | null;
+  avatarUrl?: string | null;
+  status?: string | null;
 }
 
 export interface CreateServerInput {

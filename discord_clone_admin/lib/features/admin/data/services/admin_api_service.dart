@@ -1,5 +1,4 @@
 import 'package:discord_clone_admin/core/network/api_client.dart';
-import 'package:discord_clone_admin/core/network/api_exception.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AdminApiService {
@@ -51,7 +50,6 @@ class AdminApiService {
     if (search != null && search.isNotEmpty) queryParams['search'] = search;
     if (active != null) queryParams['active'] = active.toString();
 
-    final uri = Uri.parse('${ApiClient.baseUrl}/admin/users').replace(queryParameters: queryParams);
     // Need to implement query param support in ApiClient get method
     return await _apiClient.get('/admin/users', bearerToken: token);
   }
@@ -90,7 +88,6 @@ class AdminApiService {
     };
     if (search != null && search.isNotEmpty) queryParams['search'] = search;
 
-    // TODO: Need url construction for query params
     return await _apiClient.get('/admin/servers', bearerToken: token);
   }
 

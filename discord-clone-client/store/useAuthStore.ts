@@ -28,6 +28,9 @@ export interface User {
   birthDate?: string;
   country?: string;
   pronouns?: string;
+  avatarEffectId?: string;
+  bannerEffectId?: string;
+  cardEffectId?: string;
 }
 
 interface AuthState {
@@ -77,6 +80,9 @@ const mapProfileToUser = (profile: UserProfileResponse): User => ({
   birthDate: profile.birthDate ?? undefined,
   country: profile.country ?? undefined,
   pronouns: profile.pronouns ?? undefined,
+  avatarEffectId: profile.avatarEffectId ?? undefined,
+  bannerEffectId: profile.bannerEffectId ?? undefined,
+  cardEffectId: profile.cardEffectId ?? undefined,
 });
 
 let initializePromise: Promise<void> | null = null;

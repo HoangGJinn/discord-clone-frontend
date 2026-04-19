@@ -240,6 +240,9 @@ export default function AddFriendScreen() {
                   displayName: item.displayName,
                   avatar: item.avatarUrl || undefined,
                   bio: item.bio,
+                  avatarEffectId: item.avatarEffectId || undefined,
+                  bannerEffectId: item.bannerEffectId || undefined,
+                  cardEffectId: item.cardEffectId || undefined,
                 }}
                 size={44}
                 status="OFFLINE"

@@ -62,6 +62,9 @@ export interface UserProfileResponse {
   birthDate?: string | null;
   country?: string | null;
   pronouns?: string | null;
+  avatarEffectId?: string | null;
+  bannerEffectId?: string | null;
+  cardEffectId?: string | null;
 }
 
 export const authService = {

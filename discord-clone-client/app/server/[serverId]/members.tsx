@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { UserAvatarWithActions } from '@/components/UserAvatarWithActions';
+import { UserRowNameplate } from '@/components/UserRowNameplate';
 import { ThemedText } from '@/components/themed-text';
 import { DiscordColors, Spacing } from '@/constants/theme';
 import {
@@ -217,31 +218,36 @@ export default function ServerMembersScreen() {
                       key={member.id}
                       onLongPress={() => handleMemberActions(member)}
                       delayLongPress={260}
-                      style={styles.memberRow}
+                      style={styles.memberRowContainer}
                     >
-                      <UserAvatarWithActions
-                        user={{
-                          id: member.userId,
-                          username: member.userName,
-                          displayName: member.displayName,
-                          avatar: member.avatarUrl || undefined,
-                          status: member.status,
-                        }}
-                        size={38}
-                      />
+                      <UserRowNameplate cardEffectId={member.cardEffectId} style={styles.memberRow}>
+                        <UserAvatarWithActions
+                          user={{
+                            id: member.userId,
+                            username: member.userName,
+                            displayName: member.displayName,
+                            avatar: member.avatarUrl || undefined,
+                            status: member.status || undefined,
+                            avatarEffectId: member.avatarEffectId || undefined,
+                            bannerEffectId: member.bannerEffectId || undefined,
+                            cardEffectId: member.cardEffectId || undefined,
+                          }}
+                          size={38}
+                        />
 
-                      <View style={styles.memberInfo}>
-                        <ThemedText style={styles.memberName} numberOfLines={1}>
-                          {member.nickname || member.displayName || member.userName}
-                        </ThemedText>
-                        <ThemedText style={styles.memberSub} numberOfLines={1}>
-                          @{member.userName}
-                        </ThemedText>
-                      </View>
+                        <View style={styles.memberInfo}>
+                          <ThemedText style={styles.memberName} numberOfLines={1}>
+                            {member.nickname || member.displayName || member.userName}
+                          </ThemedText>
+                          <ThemedText style={styles.memberSub} numberOfLines={1}>
+                            @{member.userName}
+                          </ThemedText>
+                        </View>
 
-                      <View style={styles.roleBadge}>
-                        <ThemedText style={styles.roleBadgeText}>{toTitle(member.role)}</ThemedText>
-                      </View>
+                        <View style={styles.roleBadge}>
+                          <ThemedText style={styles.roleBadgeText}>{toTitle(member.role)}</ThemedText>
+                        </View>
+                      </UserRowNameplate>
                     </Pressable>
                   ))}
                 </View>
@@ -354,14 +360,18 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
+  memberRowContainer: {
+    borderRadius: 12,
+    backgroundColor: DiscordColors.secondaryBackground,
+    overflow: 'hidden',
+  },
   memberRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
-    backgroundColor: DiscordColors.secondaryBackground,
-    borderRadius: 12,
     paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.sm,
+    flex: 1,
   },
   memberInfo: {
     flex: 1,

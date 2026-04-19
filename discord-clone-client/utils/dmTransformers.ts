@@ -2,7 +2,7 @@ import { User } from "@/store/useAuthStore";
 import { DirectMessage, Conversation, Reaction } from "@/types/dm";
 
 // Backend UserResponse structure
-interface BackendUserResponse {
+export interface BackendUserResponse {
   id: number;
   username: string;
   email?: string;
@@ -14,10 +14,13 @@ interface BackendUserResponse {
   pronouns?: string;
   status?: string;
   roles?: string[];
+  avatarEffectId?: string;
+  bannerEffectId?: string;
+  cardEffectId?: string;
 }
 
 // Backend DirectMessageResponse structure
-interface BackendDirectMessageResponse {
+export interface BackendDirectMessageResponse {
   id: string;
   conversationId: string;
   senderId: number;
@@ -37,7 +40,7 @@ interface BackendDirectMessageResponse {
 }
 
 // Backend ConversationResponse structure
-interface BackendConversationResponse {
+export interface BackendConversationResponse {
   id: string;
   participantOne?: BackendUserResponse;
   participantTwo?: BackendUserResponse;
@@ -67,6 +70,9 @@ export function transformUser(backendUser?: BackendUserResponse | null): User | 
     birthDate: backendUser.birthDate,
     country: backendUser.country,
     pronouns: backendUser.pronouns,
+    avatarEffectId: backendUser.avatarEffectId || undefined,
+    bannerEffectId: backendUser.bannerEffectId || undefined,
+    cardEffectId: backendUser.cardEffectId || undefined,
   };
 }
 
@@ -112,7 +118,7 @@ export function transformDirectMessage(
     updatedAt:
       msg.updatedAt && typeof msg.updatedAt === "string"
         ? msg.updatedAt
-        : msg.updatedAt?.toISOString(),
+        : msg.updatedAt ? (msg.updatedAt as Date).toISOString() : undefined,
   };
 }
 
@@ -141,11 +147,11 @@ export function transformConversation(
     createdAt:
       typeof conv.createdAt === "string"
         ? conv.createdAt
-        : conv.createdAt?.toISOString() || new Date().toISOString(),
+        : (conv.createdAt as Date)?.toISOString() || new Date().toISOString(),
     updatedAt:
       conv.updatedAt && typeof conv.updatedAt === "string"
         ? conv.updatedAt
-        : conv.updatedAt?.toISOString() || new Date().toISOString(),
+        : conv.updatedAt ? (conv.updatedAt as Date).toISOString() : new Date().toISOString(),
   };
 }
 

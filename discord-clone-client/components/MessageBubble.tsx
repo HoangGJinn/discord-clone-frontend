@@ -1,9 +1,11 @@
 import React, { memo } from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
+import { Image } from 'expo-image';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { UserAvatarWithActions } from './UserAvatarWithActions';
+import { NAMEPLATE_EFFECTS } from '@/constants/profileEffects';
 import { ThemedText } from './themed-text';
 import { ReactionBar } from './ReactionBar';
 import { ImageAttachment } from './ImageAttachment';
@@ -59,6 +61,20 @@ function MessageBubbleInner({
           showHeader ? styles.withHeader : styles.grouped,
         ]}
       >
+        {showHeader && message.sender.cardEffectId && (
+          (() => {
+            const effect = NAMEPLATE_EFFECTS.find(e => e.id === message.sender.cardEffectId);
+            if (!effect) return null;
+            return (
+              <Image
+                source={effect.uri}
+                style={styles.messageNameplate}
+                pointerEvents="none"
+                contentFit="cover"
+              />
+            );
+          })()
+        )}
         {/* Avatar column */}
         <View style={styles.avatarColumn}>
           {showHeader ? (
@@ -69,7 +85,9 @@ function MessageBubbleInner({
                 displayName: message.sender.displayName,
                 avatar: message.sender.avatar,
                 status: message.sender.status,
-                bio: message.sender.bio,
+                avatarEffectId: message.sender.avatarEffectId,
+                bannerEffectId: message.sender.bannerEffectId,
+                cardEffectId: message.sender.cardEffectId,
               }}
               size={40}
             />
@@ -192,5 +210,12 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: DiscordColors.textMuted,
     marginTop: 2,
+  },
+  messageNameplate: {
+    ...StyleSheet.absoluteFillObject,
+    height: 50, // Constrain height for message header
+    opacity: 0.15, // Subtle background
+    borderTopLeftRadius: 10,
+    borderTopRightRadius: 10,
   },
 });

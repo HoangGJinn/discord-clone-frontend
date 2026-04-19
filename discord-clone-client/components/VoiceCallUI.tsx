@@ -41,6 +41,9 @@ interface VoiceCallUIProps {
   remoteUserName?: string;
   remoteUserAvatar?: string;
   remoteUserId?: string;
+  remoteAvatarEffectId?: string;
+  remoteBannerEffectId?: string;
+  remoteCardEffectId?: string;
   onSendMessage?: () => void;
   onLeave?: () => void;
   onMinimize?: () => void;
@@ -198,6 +201,9 @@ function VoiceCallUIInner({
   remoteUserName = 'Unknown',
   remoteUserAvatar,
   remoteUserId,
+  remoteAvatarEffectId,
+  remoteBannerEffectId,
+  remoteCardEffectId,
   onSendMessage,
   onLeave,
   onMinimize,
@@ -344,6 +350,9 @@ function VoiceCallUIInner({
                     username: remoteUserName,
                     displayName: remoteUserName,
                     avatar: remoteUserAvatar,
+                    avatarEffectId: remoteAvatarEffectId,
+                    bannerEffectId: remoteBannerEffectId,
+                    cardEffectId: remoteCardEffectId,
                   }}
                   size={100}
                 />
@@ -384,6 +393,9 @@ function VoiceCallUIInner({
                     username: remoteUserName,
                     displayName: remoteUserName,
                     avatar: remoteUserAvatar,
+                    avatarEffectId: remoteAvatarEffectId,
+                    bannerEffectId: remoteBannerEffectId,
+                    cardEffectId: remoteCardEffectId,
                   }}
                   size={100}
                 />
@@ -461,6 +473,9 @@ function VoiceCallUIInner({
                         username: remoteUserName,
                         displayName: remoteUserName,
                         avatar: remoteUserAvatar,
+                        avatarEffectId: remoteAvatarEffectId,
+                        bannerEffectId: remoteBannerEffectId,
+                        cardEffectId: remoteCardEffectId,
                       }}
                       size={140}
                     />
@@ -480,12 +495,15 @@ function VoiceCallUIInner({
               <View style={styles.selfVideoArea}>
                 <View style={styles.selfBg}>
                   <View style={styles.selfAvatarContainer}>
-                    <View style={[styles.selfAvatarBg, isMuted && styles.selfAvatarBgMuted]}>
-                      <Ionicons name="person" size={44} color="#fff" />
-                    </View>
-                    <View style={styles.selfRing} />
+                    <UserAvatarWithActions
+                      user={currentUser!}
+                      size={80}
+                      disabled={true}
+                    />
                   </View>
+                  {/* <View style={styles.selfRing} /> */}
                 </View>
+
                 <View style={styles.selfUserInfo}>
                   <ThemedText style={styles.selfUsername}>{currentUser?.displayName || 'You'}</ThemedText>
                 </View>

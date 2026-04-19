@@ -11,12 +11,14 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { Image } from 'expo-image';
 
 import { Avatar } from './Avatar';
 import { ThemedText } from './themed-text';
 import { DiscordColors, Spacing } from '@/constants/theme';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useDMStore } from '@/store/useDMStore';
+import { AVATAR_EFFECTS, BACKGROUND_EFFECTS, NAMEPLATE_EFFECTS } from '@/constants/profileEffects';
 
 export interface QuickActionUser {
   id: string | number;
@@ -25,6 +27,9 @@ export interface QuickActionUser {
   avatar?: string | null;
   status?: string | null;
   bio?: string | null;
+  avatarEffectId?: string | null;
+  bannerEffectId?: string | null;
+  cardEffectId?: string | null;
 }
 
 interface UserAvatarWithActionsProps {
@@ -67,6 +72,8 @@ export function UserAvatarWithActions({
 
   const displayName = user.displayName || user.username;
   const isSelf = String(currentUser?.id || '') === String(user.id);
+  const activeBgEffect = user.bannerEffectId ? BACKGROUND_EFFECTS.find(e => e.id === user.bannerEffectId) : null;
+  const activeNameplateEffect = user.cardEffectId ? NAMEPLATE_EFFECTS.find(e => e.id === user.cardEffectId) : null;
 
   const closeSheet = () => {
     setIsVisible(false);
@@ -103,6 +110,7 @@ export function UserAvatarWithActions({
           uri={user.avatar || undefined}
           size={size}
           status={effectiveStatus}
+          avatarEffectId={user.avatarEffectId}
           style={avatarStyle as ViewStyle}
         />
       </TouchableOpacity>
@@ -117,6 +125,22 @@ export function UserAvatarWithActions({
           <Pressable style={styles.backdrop} onPress={closeSheet} />
 
           <View style={styles.sheet}>
+            {activeBgEffect && (
+              <Image
+                source={activeBgEffect.uri}
+                style={[StyleSheet.absoluteFill, { zIndex: -1, borderTopLeftRadius: 20, borderTopRightRadius: 20 }]}
+                pointerEvents="none"
+                contentFit="cover"
+              />
+            )}
+            {activeNameplateEffect && (
+              <Image
+                source={activeNameplateEffect.uri}
+                style={[styles.nameplateImage, { zIndex: 1 }]}
+                pointerEvents="none"
+                contentFit="cover"
+              />
+            )}
             <View style={styles.handle} />
 
             <View style={styles.userHeader}>
@@ -125,6 +149,7 @@ export function UserAvatarWithActions({
                 uri={user.avatar || undefined}
                 size={68}
                 status={effectiveStatus}
+                avatarEffectId={user.avatarEffectId}
               />
               <View style={styles.userInfo}>
                 <ThemedText style={styles.displayName}>{displayName}</ThemedText>
@@ -296,5 +321,13 @@ const styles = StyleSheet.create({
     color: DiscordColors.textPrimary,
     fontSize: 13,
     lineHeight: 19,
+  },
+  nameplateImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: 120, // Constrain height to cover only the top header area
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    opacity: 0.9,
   },
 });

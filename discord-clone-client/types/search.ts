@@ -18,10 +18,15 @@ export interface SearchChannel {
 
 export interface SearchMember {
   id: string;
+  userId: string;
   username: string;
   displayName?: string;
   avatar?: string;
+  avatarUrl?: string; // from backend mapper
   status?: string;
+  avatarEffectId?: string;
+  bannerEffectId?: string;
+  cardEffectId?: string;
 }
 
 // ─── Combined Search Response ────────────────────────────────

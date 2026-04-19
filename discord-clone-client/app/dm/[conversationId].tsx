@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
@@ -26,6 +27,7 @@ import { useDMStore } from '@/store/useDMStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { DirectMessage, getOtherParticipant } from '@/types/dm';
 import { DiscordColors, Spacing } from '@/constants/theme';
+import { NAMEPLATE_EFFECTS } from '@/constants/profileEffects';
 import { isDifferentDay, formatDaySeparator } from '@/utils/formatTime';
 import socketService from '@/services/socketService';
 
@@ -343,9 +345,26 @@ export default function DMChatScreen() {
                   avatar: otherUser.avatar,
                   status: otherUser.status,
                   bio: otherUser.bio,
+                  avatarEffectId: otherUser.avatarEffectId,
+                  bannerEffectId: otherUser.bannerEffectId,
+                  cardEffectId: otherUser.cardEffectId,
                 }}
                 size={32}
               />
+              {otherUser.cardEffectId && (
+                (() => {
+                  const effect = NAMEPLATE_EFFECTS.find(e => e.id === otherUser.cardEffectId);
+                  if (!effect) return null;
+                  return (
+                    <Image
+                      source={effect.uri}
+                      style={styles.headerNameplate}
+                      pointerEvents="none"
+                      contentFit="cover"
+                    />
+                  );
+                })()
+              )}
               <View style={styles.headerInfo}>
                 <ThemedText style={styles.headerName} numberOfLines={1}>
                   {otherUser.displayName || otherUser.username}
@@ -436,6 +455,9 @@ export default function DMChatScreen() {
                         avatar: otherUser.avatar,
                         status: otherUser.status,
                         bio: otherUser.bio,
+                        avatarEffectId: otherUser.avatarEffectId,
+                        bannerEffectId: otherUser.bannerEffectId,
+                        cardEffectId: otherUser.cardEffectId,
                       }}
                       size={72}
                     />
@@ -507,6 +529,9 @@ export default function DMChatScreen() {
         remoteUserName={otherUser?.displayName || otherUser?.username || 'Unknown'}
         remoteUserAvatar={otherUser?.avatar}
         remoteUserId={otherUser?.id}
+        remoteAvatarEffectId={otherUser?.avatarEffectId}
+        remoteBannerEffectId={otherUser?.bannerEffectId}
+        remoteCardEffectId={otherUser?.cardEffectId}
         onSendMessage={handleSendMessageInCall}
         onLeave={handleLeaveCall}
         onMinimize={handleMinimizeCall}
@@ -617,5 +642,10 @@ const styles = StyleSheet.create({
   emptyList: {
     flexGrow: 1,
     justifyContent: 'flex-end',
+  },
+  headerNameplate: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.25,
+    zIndex: -1,
   },
 });

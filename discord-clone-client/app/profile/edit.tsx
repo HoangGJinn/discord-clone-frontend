@@ -1,5 +1,7 @@
 import apiClient from '@/api/client';
 import { Avatar } from '@/components/Avatar';
+import { EffectModal } from '@/components/profile/EffectModal';
+import { AVATAR_EFFECTS, BACKGROUND_EFFECTS, NAMEPLATE_EFFECTS } from '@/constants/profileEffects';
 import { ThemedText } from '@/components/themed-text';
 import { DiscordColors, Spacing } from '@/constants/theme';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -17,6 +19,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -69,6 +72,17 @@ export default function EditProfileScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
+  const [selectedAvatarEffect, setSelectedAvatarEffect] = useState<any>(
+    user?.avatarEffectId ? AVATAR_EFFECTS.find((e) => e.id === user.avatarEffectId) || null : null
+  );
+  const [selectedBgEffect, setSelectedBgEffect] = useState<any>(
+    user?.bannerEffectId ? BACKGROUND_EFFECTS.find((e) => e.id === user.bannerEffectId) || null : null
+  );
+  const [selectedCardEffect, setSelectedCardEffect] = useState<any>(
+    user?.cardEffectId ? NAMEPLATE_EFFECTS.find((e) => e.id === user.cardEffectId) || null : null
+  );
+  const [effectModalType, setEffectModalType] = useState<'AVATAR' | 'BACKGROUND' | 'CARD' | null>(null);
+
   const isDirty = useMemo(() => {
     if (!user) return false;
     return (
@@ -76,9 +90,12 @@ export default function EditProfileScreen() {
       String(pronouns).trim() !== String(user.pronouns || '').trim() ||
       String(bio).trim() !== String(user.bio || '').trim() ||
       String(avatarUri || '') !== String(user.avatar || '') ||
-      status !== normalizeStatus(user.status)
+      status !== normalizeStatus(user.status) ||
+      (selectedAvatarEffect?.id || '') !== (user.avatarEffectId || '') ||
+      (selectedBgEffect?.id || '') !== (user.bannerEffectId || '') ||
+      (selectedCardEffect?.id || '') !== (user.cardEffectId || '')
     );
-  }, [avatarUri, bio, displayName, pronouns, status, user]);
+  }, [avatarUri, bio, displayName, pronouns, status, user, selectedAvatarEffect, selectedBgEffect, selectedCardEffect]);
 
   if (!user) {
     return (
@@ -113,23 +130,37 @@ export default function EditProfileScreen() {
       setIsUploadingAvatar(true);
 
       const formData = new FormData();
-      formData.append('file', {
-        uri: asset.uri,
-        type: asset.mimeType || 'image/jpeg',
-        name: asset.fileName || getFileNameFromUri(asset.uri),
-      } as any);
+      if (Platform.OS === 'web') {
+        const response = await fetch(asset.uri);
+        const blob = await response.blob();
+        formData.append('file', blob, asset.fileName || 'avatar.jpg');
+      } else {
+        formData.append('file', {
+          uri: asset.uri,
+          type: asset.mimeType || 'image/jpeg',
+          name: asset.fileName || getFileNameFromUri(asset.uri),
+        } as any);
+      }
 
-      const uploadResponse = await apiClient.post('/upload', formData, {
+      const uploadResponse = await apiClient.post('upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
+      console.log('DEBUG: Kết quả upload avatar:', uploadResponse.data);
 
       const uploadedUrl = uploadResponse.data?.url || uploadResponse.data;
       if (!uploadedUrl) {
+        console.error('DEBUG: Server không trả về URL. Data:', uploadResponse.data);
         throw new Error('Không nhận được URL avatar từ server.');
       }
 
       setAvatarUri(String(uploadedUrl));
     } catch (error: any) {
+      console.error('DEBUG: Lỗi chi tiết khi upload avatar:', {
+        message: error.message,
+        code: error.code,
+        status: error.response?.status,
+        data: error.response?.data,
+      });
       Alert.alert('Không thể đổi avatar', error?.message || 'Vui lòng thử lại.');
     } finally {
       setIsUploadingAvatar(false);
@@ -150,6 +181,9 @@ export default function EditProfileScreen() {
       pronouns: pronouns.trim() || null,
       bio: bio.trim() || null,
       avatarUrl: avatarUri || null,
+      avatarEffectId: selectedAvatarEffect?.id || "",
+      bannerEffectId: selectedBgEffect?.id || "",
+      cardEffectId: selectedCardEffect?.id || "",
     };
 
     setIsSaving(true);
@@ -172,6 +206,9 @@ export default function EditProfileScreen() {
         pronouns: data.pronouns ?? (pronouns.trim() || undefined),
         bio: data.bio ?? (bio.trim() || undefined),
         avatar: data.avatarUrl ?? (avatarUri || undefined),
+        avatarEffectId: data.avatarEffectId ?? (selectedAvatarEffect?.id || undefined),
+        bannerEffectId: data.bannerEffectId ?? (selectedBgEffect?.id || undefined),
+        cardEffectId: data.cardEffectId ?? (selectedCardEffect?.id || undefined),
         status,
       });
 
@@ -233,8 +270,13 @@ export default function EditProfileScreen() {
  
        <ScrollView contentContainerStyle={styles.scrollContent}>
          <View style={styles.previewCard}>
-           <Image source={{ uri: PLACEHOLDER_BANNER }} style={styles.bannerImage} contentFit="cover" />
- 
+           <View>
+             <Image source={{ uri: PLACEHOLDER_BANNER }} style={styles.bannerImage} contentFit="cover" />
+             {selectedBgEffect && (
+               <Image source={selectedBgEffect.uri} style={[styles.bannerImage, styles.bannerEffectImage, { position: 'absolute' }]} contentFit="cover" />
+             )}
+           </View>
+
            <View style={styles.avatarArea}>
              <View>
                <Avatar
@@ -243,6 +285,9 @@ export default function EditProfileScreen() {
                  size={90}
                  status={status}
                />
+               {selectedAvatarEffect && (
+                 <Image source={selectedAvatarEffect.uri} style={styles.avatarEffectImage} pointerEvents="none" />
+               )}
                <TouchableOpacity
                  style={styles.editAvatarBtn}
                  onPress={() => {
@@ -316,34 +361,58 @@ export default function EditProfileScreen() {
              <ThemedText style={styles.fieldLabel}>Trang Trí Ảnh Đại Diện</ThemedText>
              <TouchableOpacity
                style={styles.placeholderRow}
-               onPress={() => Alert.alert('Placeholder', 'Tính năng trang trí avatar bạn sẽ phát triển sau.')}
+               onPress={() => setEffectModalType('AVATAR')}
              >
-               <Ionicons name="close" size={24} color={DiscordColors.textSecondary} />
-               <ThemedText style={styles.placeholderText}>Candlelight</ThemedText>
+               {selectedAvatarEffect ? (
+                 <View style={styles.thumbnailWrapper}>
+                   <Image source={selectedAvatarEffect.uri} style={styles.effectThumbnail} contentFit="contain" />
+                 </View>
+               ) : (
+                 <Ionicons name="close" size={24} color={DiscordColors.textSecondary} />
+               )}
+               <ThemedText style={[styles.placeholderText, !selectedAvatarEffect && styles.placeholderTextEmpty]}>
+                 {selectedAvatarEffect ? selectedAvatarEffect.name : 'Chưa chọn hiệu ứng'}
+               </ThemedText>
                <Ionicons name="chevron-forward" size={20} color={DiscordColors.textMuted} />
              </TouchableOpacity>
            </View>
  
            <View style={styles.fieldWrap}>
-             <ThemedText style={styles.fieldLabel}>Hiệu Ứng Hồ Sơ</ThemedText>
+             <ThemedText style={styles.fieldLabel}>Hiệu Ứng Nền Bìa</ThemedText>
              <TouchableOpacity
                style={styles.placeholderRow}
-               onPress={() => Alert.alert('Placeholder', 'Tính năng hiệu ứng hồ sơ bạn sẽ phát triển sau.')}
+               onPress={() => setEffectModalType('BACKGROUND')}
              >
-               <Ionicons name="close" size={24} color={DiscordColors.textSecondary} />
-               <ThemedText style={styles.placeholderText}>Vòng Xoáy Vô Tận</ThemedText>
+               {selectedBgEffect ? (
+                 <View style={styles.thumbnailWrapper}>
+                   <Image source={selectedBgEffect.uri} style={styles.effectThumbnail} contentFit="contain" />
+                 </View>
+               ) : (
+                 <Ionicons name="close" size={24} color={DiscordColors.textSecondary} />
+               )}
+               <ThemedText style={[styles.placeholderText, !selectedBgEffect && styles.placeholderTextEmpty]}>
+                 {selectedBgEffect ? selectedBgEffect.name : 'Chưa chọn hiệu ứng'}
+               </ThemedText>
                <Ionicons name="chevron-forward" size={20} color={DiscordColors.textMuted} />
              </TouchableOpacity>
            </View>
  
            <View style={styles.fieldWrap}>
-             <ThemedText style={styles.fieldLabel}>Bảng Tên</ThemedText>
+             <ThemedText style={styles.fieldLabel}>Hiệu Ứng Bảng Tên</ThemedText>
              <TouchableOpacity
                style={styles.placeholderRow}
-               onPress={() => Alert.alert('Placeholder', 'Tính năng bảng tên bạn sẽ phát triển sau.')}
+               onPress={() => setEffectModalType('CARD')}
              >
-               <Ionicons name="close" size={24} color={DiscordColors.textSecondary} />
-               <ThemedText style={styles.placeholderText}>Phù Thủy</ThemedText>
+               {selectedCardEffect ? (
+                 <View style={styles.thumbnailWrapper}>
+                   <Image source={selectedCardEffect.uri} style={styles.effectThumbnail} contentFit="contain" />
+                 </View>
+               ) : (
+                 <Ionicons name="close" size={24} color={DiscordColors.textSecondary} />
+               )}
+               <ThemedText style={[styles.placeholderText, !selectedCardEffect && styles.placeholderTextEmpty]}>
+                 {selectedCardEffect ? selectedCardEffect.name : 'Chưa chọn hiệu ứng'}
+               </ThemedText>
                <Ionicons name="chevron-forward" size={20} color={DiscordColors.textMuted} />
              </TouchableOpacity>
            </View>
@@ -387,6 +456,31 @@ export default function EditProfileScreen() {
            </View>
          </View>
        </Modal>
+
+       <EffectModal
+         visible={effectModalType === 'AVATAR'}
+         title="Trang Trí Ảnh Đại Diện"
+         data={AVATAR_EFFECTS}
+         currentSelectedId={selectedAvatarEffect?.id}
+         onSelect={setSelectedAvatarEffect}
+         onClose={() => setEffectModalType(null)}
+       />
+       <EffectModal
+         visible={effectModalType === 'BACKGROUND'}
+         title="Hiệu Ứng Nền Bìa"
+         data={BACKGROUND_EFFECTS}
+         currentSelectedId={selectedBgEffect?.id}
+         onSelect={setSelectedBgEffect}
+         onClose={() => setEffectModalType(null)}
+       />
+       <EffectModal
+         visible={effectModalType === 'CARD'}
+         title="Hiệu Ứng Bảng Tên"
+         data={NAMEPLATE_EFFECTS}
+         currentSelectedId={selectedCardEffect?.id}
+         onSelect={setSelectedCardEffect}
+         onClose={() => setEffectModalType(null)}
+       />
      </SafeAreaView>
    );
  }
@@ -488,6 +582,7 @@ export default function EditProfileScreen() {
      justifyContent: 'center',
      borderWidth: 1,
      borderColor: DiscordColors.divider,
+     zIndex: 10,
    },
    statusActionBtn: {
      marginTop: 18,
@@ -647,5 +742,33 @@ export default function EditProfileScreen() {
      height: 12,
      borderRadius: 6,
      backgroundColor: '#6375FF',
+   },
+   bannerEffectImage: {
+     zIndex: 2,
+   },
+   avatarEffectImage: {
+     position: 'absolute',
+     top: -15,
+     left: -15,
+     width: 120,
+     height: 120,
+     zIndex: 5,
+   },
+   placeholderTextEmpty: {
+     color: DiscordColors.textSecondary,
+     fontWeight: '500',
+   },
+   thumbnailWrapper: {
+     width: 40,
+     height: 40,
+     borderRadius: 8,
+     backgroundColor: '#202225',
+     alignItems: 'center',
+     justifyContent: 'center',
+     overflow: 'hidden',
+   },
+   effectThumbnail: {
+     width: '100%',
+     height: '100%',
    },
  });

@@ -12,10 +12,7 @@ if (__DEV__) {
 // ─── Khởi tạo Axios Client ───────────────────────────────────────────────────
 const apiClient = axios.create({
   baseURL: API_URL,
-  headers: {
-    "Content-Type": "application/json",
-  },
-  timeout: 15000, // Thêm timeout 15s để tránh app bị treo vĩnh viễn khi mạng lag
+  timeout: 15000,
 });
 
 // ─── Interceptors ────────────────────────────────────────────────────────────
@@ -46,13 +43,16 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401) {
       console.warn("⚠️ Token hết hạn hoặc không hợp lệ (401). Đang dọn dẹp...");
       try {
-        // Dùng multiRemove để xóa sạch sẽ cùng lúc thay vì gọi removeItem nhiều lần
-        await AsyncStorage.multiRemove(["auth_token", "auth_user"]);
-        
-        // Lưu ý: Thường chỗ này bạn sẽ cần trigger một event (vd: DeviceEventEmitter) 
-        // hoặc dùng Zustand/Redux để ép app chuyển thẳng về màn hình Login.
+        const { useAuthStore } = require("@/store/useAuthStore");
+        // Dùng getState() của Zustand để gọi trực tiếp ngoài React component
+        const logout = useAuthStore.getState().logout;
+        if (logout) {
+          await logout();
+        } else {
+          await AsyncStorage.multiRemove(["auth_token", "auth_user"]);
+        }
       } catch (removeError) {
-        console.error("❌ Lỗi khi xóa dữ liệu auth:", removeError);
+        console.error("❌ Lỗi khi tự động đăng xuất:", removeError);
       }
     }
     return Promise.reject(error);

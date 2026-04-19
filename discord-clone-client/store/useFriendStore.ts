@@ -19,6 +19,13 @@ export interface FriendshipResponse {
   receiverStatus?: UserPresenceStatus | null;
   createdAt?: string | null;
   updatedAt?: string | null;
+  // Effect fields
+  senderAvatarEffectId?: string | null;
+  senderBannerEffectId?: string | null;
+  senderCardEffectId?: string | null;
+  receiverAvatarEffectId?: string | null;
+  receiverBannerEffectId?: string | null;
+  receiverCardEffectId?: string | null;
 }
 
 export interface UserSearchResult {
@@ -30,6 +37,9 @@ export interface UserSearchResult {
   friendshipStatus?: FriendshipStatus | null;
   friendshipId?: number | null;
   isSender?: boolean | null;
+  avatarEffectId?: string | null;
+  bannerEffectId?: string | null;
+  cardEffectId?: string | null;
 }
 
 interface FriendState {
@@ -85,6 +95,12 @@ const normalizeFriendship = (raw: any): FriendshipResponse => ({
   receiverStatus: raw?.receiverStatus ?? null,
   createdAt: raw?.createdAt ?? null,
   updatedAt: raw?.updatedAt ?? null,
+  senderAvatarEffectId: raw?.senderAvatarEffectId ?? null,
+  senderBannerEffectId: raw?.senderBannerEffectId ?? null,
+  senderCardEffectId: raw?.senderCardEffectId ?? null,
+  receiverAvatarEffectId: raw?.receiverAvatarEffectId ?? null,
+  receiverBannerEffectId: raw?.receiverBannerEffectId ?? null,
+  receiverCardEffectId: raw?.receiverCardEffectId ?? null,
 });
 
 const normalizeSearchUser = (raw: any): UserSearchResult => ({
@@ -96,6 +112,9 @@ const normalizeSearchUser = (raw: any): UserSearchResult => ({
   friendshipStatus: (raw?.friendshipStatus ?? null) as FriendshipStatus | null,
   friendshipId: raw?.friendshipId != null ? Number(raw.friendshipId) : null,
   isSender: raw?.isSender ?? null,
+  avatarEffectId: raw?.avatarEffectId ?? null,
+  bannerEffectId: raw?.bannerEffectId ?? null,
+  cardEffectId: raw?.cardEffectId ?? null,
 });
 
 export const useFriendStore = create<FriendState>((set, get) => ({
