@@ -29,6 +29,7 @@ const TABS: { key: SearchType; label: string }[] = [
   { key: 'servers', label: 'Servers' },
   { key: 'channels', label: 'Channels' },
   { key: 'members', label: 'Members' },
+  { key: 'friends', label: 'Friends' },
 ];
 
 // ─── Screen ──────────────────────────────────────────────────
@@ -85,7 +86,7 @@ export default function SearchScreen() {
 
   // ── Count total results ────────────────────────────────
   const totalResults =
-    results.servers.length + results.channels.length + results.members.length;
+    results.servers.length + results.channels.length + results.members.length + results.friends.length;
 
   const hasQuery = localQuery.trim().length > 0;
 
@@ -105,7 +106,7 @@ export default function SearchScreen() {
             style={styles.searchInput}
             value={localQuery}
             onChangeText={handleChangeText}
-            placeholder="Search servers, channels, people..."
+            placeholder="Search servers, channels, people, friends..."
             placeholderTextColor={DiscordColors.textMuted}
             returnKeyType="search"
             autoFocus={false}
@@ -230,6 +231,26 @@ export default function SearchScreen() {
               </Animated.View>
             )}
 
+          {/* Friends */}
+          {(searchType === 'all' || searchType === 'friends') &&
+            results.friends.length > 0 && (
+              <Animated.View entering={FadeInDown.delay(400).duration(300)}>
+                <ThemedText style={styles.sectionTitle}>
+                  Friends ({results.friends.length})
+                </ThemedText>
+                {results.friends.map((friend) => (
+                  <SearchMemberItem
+                    key={friend.id}
+                    member={friend}
+                    onPress={() => {
+                      // Navigate to friend profile
+                      alert(`View profile: ${friend.username}`);
+                    }}
+                  />
+                ))}
+              </Animated.View>
+            )}
+
           {/* No results */}
           {totalResults === 0 && (
             <View style={styles.emptyContainer}>
@@ -259,7 +280,7 @@ export default function SearchScreen() {
           />
           <ThemedText style={styles.initialTitle}>Explore</ThemedText>
           <ThemedText style={styles.initialSubtitle}>
-            Search for servers, channels, and people
+            Search for servers, channels, people, and friends
           </ThemedText>
         </View>
       )}

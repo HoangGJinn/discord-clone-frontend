@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Modal,
   Pressable,
@@ -19,6 +20,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import socketService from '@/services/socketService';
 
 type UserStatus = 'ONLINE' | 'IDLE' | 'DND' | 'OFFLINE';
 
@@ -33,7 +35,6 @@ const STATUS_OPTIONS: StatusOption[] = [
   { value: 'ONLINE', label: 'Trực tuyến', icon: 'ellipse', color: '#23A559' },
   { value: 'IDLE', label: 'Chờ', icon: 'moon', color: '#F2A31A' },
   { value: 'DND', label: 'Vui Lòng Không Làm Phiền', icon: 'remove-circle', color: '#F23F43' },
-  { value: 'OFFLINE', label: 'Vô hình', icon: 'radio-button-off', color: '#80848E' },
 ];
 
 const normalizeStatus = (status?: string): UserStatus => {
@@ -45,12 +46,13 @@ const normalizeStatus = (status?: string): UserStatus => {
 };
 
 export default function ProfileScreen() {
-  const { user, logout, updateUser } = useAuthStore();
+  const { user, logout, updateUser, refreshProfile } = useAuthStore();
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
   const [isSettingsVisible, setIsSettingsVisible] = useState(false);
   const [isAccountVisible, setIsAccountVisible] = useState(false);
   const [isStatusVisible, setIsStatusVisible] = useState(false);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -72,15 +74,44 @@ export default function ProfileScreen() {
 
   const handleStatusChange = useCallback(
     async (status: UserStatus) => {
+      if (isUpdatingStatus) {
+        return;
+      }
+
+      if (!user?.id) {
+        Alert.alert('Lỗi', 'Không tìm thấy người dùng để cập nhật trạng thái.');
+        return;
+      }
+
       try {
-        await apiClient.put('/users/me/status', { status });
+        setIsUpdatingStatus(true);
+
+        if (!socketService.isConnected()) {
+          await socketService.connect();
+        }
+
+        await apiClient.put('/users/me/status', null, {
+          params: {
+            userId: Number(user.id),
+            status,
+          },
+        });
         updateUser({ status });
+        await refreshProfile();
+
         setIsStatusVisible(false);
       } catch (err: any) {
-        Alert.alert('Lỗi', err?.message || 'Không thể cập nhật trạng thái.');
+        const detail =
+          err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          err?.message ||
+          'Không thể cập nhật trạng thái.';
+        Alert.alert('Lỗi cập nhật trạng thái', String(detail));
+      } finally {
+        setIsUpdatingStatus(false);
       }
     },
-    [updateUser],
+    [isUpdatingStatus, refreshProfile, updateUser, user?.id],
   );
 
   const avatarColor = useMemo(() => {
@@ -96,6 +127,8 @@ export default function ProfileScreen() {
     return colors[Math.abs(hash) % colors.length];
   }, [user?.username]);
 
+  const isNitro = useMemo(() => Boolean(user?.isPremium), [user?.isPremium]);
+
   if (!user) {
     return (
       <View style={[styles.container, styles.center]}>
@@ -106,7 +139,9 @@ export default function ProfileScreen() {
 
   const currentStatus = normalizeStatus(user.status);
   const statusOption = STATUS_OPTIONS.find((option) => option.value === currentStatus) || STATUS_OPTIONS[0];
-  const activeBgEffect = user.bannerEffectId ? BACKGROUND_EFFECTS.find(e => e.id === user.bannerEffectId) : null;
+  const activeBgEffect = isNitro && user.bannerEffectId
+    ? BACKGROUND_EFFECTS.find((e) => e.id === user.bannerEffectId)
+    : null;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -133,13 +168,17 @@ export default function ProfileScreen() {
 
           <View style={styles.bannerActions}>
             <TouchableOpacity style={styles.bannerIconBtn}>
-              <Ionicons name="inbox" size={18} color={DiscordColors.textPrimary} />
+              <Ionicons name="mail-outline" size={18} color={DiscordColors.textPrimary} />
             </TouchableOpacity>
 
-            <View style={styles.nitroBadge}>
-              <Ionicons name="pricetag" size={14} color={DiscordColors.textPrimary} />
-              <ThemedText style={styles.nitroText}>Nitro Basic</ThemedText>
-            </View>
+            <TouchableOpacity style={styles.nitroBadge} onPress={() => router.push('/nitro')}>
+              <Ionicons
+                name={isNitro ? 'sparkles' : 'diamond-outline'}
+                size={14}
+                color={DiscordColors.textPrimary}
+              />
+              <ThemedText style={styles.nitroText}>Nitro</ThemedText>
+            </TouchableOpacity>
 
             <TouchableOpacity style={styles.bannerIconBtn} onPress={() => setIsSettingsVisible(true)}>
               <Ionicons name="settings" size={18} color={DiscordColors.textPrimary} />
@@ -158,7 +197,7 @@ export default function ProfileScreen() {
               uri={user.avatar}
               size={84}
               status={currentStatus}
-              avatarEffectId={user.avatarEffectId}
+              avatarEffectId={isNitro ? user.avatarEffectId : undefined}
             />
           </TouchableOpacity>
 
@@ -169,7 +208,15 @@ export default function ProfileScreen() {
 
           <View style={styles.nameSection}>
             <ThemedText style={styles.displayName}>{user.displayName || user.username}</ThemedText>
-            <ThemedText style={styles.username}>@{user.username}</ThemedText>
+            <View style={styles.usernameRow}>
+              <ThemedText style={styles.username}>@{user.username}</ThemedText>
+              {isNitro ? (
+                <View style={styles.usernameNitroBadge}>
+                  <Ionicons name="sparkles" size={12} color="#FEE75C" />
+                  <ThemedText style={styles.usernameNitroText}>NITRO</ThemedText>
+                </View>
+              ) : null}
+            </View>
           </View>
 
           <TouchableOpacity
@@ -250,6 +297,22 @@ export default function ProfileScreen() {
               <Ionicons name="chevron-forward" size={18} color={DiscordColors.textMuted} />
             </TouchableOpacity>
 
+            <TouchableOpacity
+              style={styles.settingRow}
+              onPress={() => {
+                setIsSettingsVisible(false);
+                router.push('/nitro');
+              }}
+            >
+              <Ionicons
+                name={isNitro ? 'sparkles-outline' : 'diamond-outline'}
+                size={20}
+                color={DiscordColors.textPrimary}
+              />
+              <ThemedText style={styles.settingText}>{isNitro ? 'Nitro của bạn' : 'Mua Nitro'}</ThemedText>
+              <Ionicons name="chevron-forward" size={18} color={DiscordColors.textMuted} />
+            </TouchableOpacity>
+
             <TouchableOpacity style={[styles.settingRow, styles.logoutRow]} onPress={handleLogout}>
               <Ionicons name="log-out-outline" size={20} color={DiscordColors.red} />
               <ThemedText style={styles.logoutText}>Đăng xuất</ThemedText>
@@ -322,6 +385,7 @@ export default function ProfileScreen() {
                     onPress={() => {
                       void handleStatusChange(option.value);
                     }}
+                    disabled={isUpdatingStatus}
                   >
                     <Ionicons name={option.icon} size={20} color={option.color} />
                     <ThemedText style={styles.statusLabel}>{option.label}</ThemedText>
@@ -332,6 +396,13 @@ export default function ProfileScreen() {
                 );
               })}
             </View>
+
+            {isUpdatingStatus ? (
+              <View style={styles.statusUpdatingRow}>
+                <ActivityIndicator size="small" color={DiscordColors.blurple} />
+                <ThemedText style={styles.statusUpdatingText}>Đang lưu trạng thái...</ThemedText>
+              </View>
+            ) : null}
 
             <TouchableOpacity
               style={styles.customStatusBtn}
@@ -440,6 +511,28 @@ const styles = StyleSheet.create({
     color: DiscordColors.textSecondary,
     fontSize: 14,
     fontWeight: '500',
+  },
+  usernameRow: {
+    marginTop: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  usernameNitroBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: 'rgba(254,231,92,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(254,231,92,0.4)',
+  },
+  usernameNitroText: {
+    color: '#FEE75C',
+    fontSize: 10,
+    fontWeight: '800',
   },
   editProfileBtn: {
     marginTop: Spacing.md,
@@ -664,5 +757,17 @@ const styles = StyleSheet.create({
     color: DiscordColors.textPrimary,
     fontSize: 16,
     fontWeight: '700',
+  },
+  statusUpdatingRow: {
+    marginTop: Spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  statusUpdatingText: {
+    color: DiscordColors.textSecondary,
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

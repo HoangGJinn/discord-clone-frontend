@@ -12,6 +12,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
 import socketService from "@/services/socketService";
 import { setAuthToken } from "@/services/authSession";
+import { Buffer } from "buffer";
 
 const AUTH_TOKEN_KEY = "auth_token";
 const AUTH_USER_KEY = "auth_user";
@@ -24,6 +25,7 @@ export interface User {
   displayName?: string;
   status?: string;
   role: string[];
+  isPremium: boolean;
   bio?: string;
   birthDate?: string;
   country?: string;
@@ -47,9 +49,18 @@ interface AuthState {
   verifyAccount: (payload: VerifyAccountRequest) => Promise<void>;
   resendOtp: (payload: ResendOtpRequest) => Promise<void>;
   logout: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
   updateUser: (user: Partial<User>) => void;
   setLoading: (isLoading: boolean) => void;
   initialize: () => Promise<void>;
+}
+
+interface JwtClaims {
+  isPremium?: boolean;
+  premium?: boolean;
+  role?: string[] | string;
+  roles?: string[] | string;
+  authorities?: string[] | string;
 }
 
 const extractErrorMessage = (error: unknown, fallbackMessage: string): string => {
@@ -68,22 +79,95 @@ const extractErrorMessage = (error: unknown, fallbackMessage: string): string =>
   return fallbackMessage;
 };
 
-const mapProfileToUser = (profile: UserProfileResponse): User => ({
-  id: String(profile.id),
-  username: profile.username,
-  email: profile.email ?? "",
-  avatar: profile.avatarUrl ?? undefined,
-  displayName: profile.displayName ?? undefined,
-  status: profile.status ?? undefined,
-  role: Array.isArray(profile.roles) ? profile.roles : [],
-  bio: profile.bio ?? undefined,
-  birthDate: profile.birthDate ?? undefined,
-  country: profile.country ?? undefined,
-  pronouns: profile.pronouns ?? undefined,
-  avatarEffectId: profile.avatarEffectId ?? undefined,
-  bannerEffectId: profile.bannerEffectId ?? undefined,
-  cardEffectId: profile.cardEffectId ?? undefined,
-});
+const asStringArray = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
+  if (typeof value === "string") {
+    return [value];
+  }
+  return [];
+};
+
+const parseJwtClaims = (token?: string | null): JwtClaims | null => {
+  if (!token) return null;
+
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) return null;
+
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    const paddedBase64 = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    const json = Buffer.from(paddedBase64, "base64").toString("utf-8");
+
+    return JSON.parse(json) as JwtClaims;
+  } catch {
+    return null;
+  }
+};
+
+const resolveRoles = (profileRoles: unknown, claims: JwtClaims | null): string[] => {
+  const rolesFromProfile = asStringArray(profileRoles);
+  if (rolesFromProfile.length > 0) {
+    return rolesFromProfile;
+  }
+
+  const rolesFromClaims = [
+    ...asStringArray(claims?.roles),
+    ...asStringArray(claims?.role),
+    ...asStringArray(claims?.authorities),
+  ];
+
+  return Array.from(new Set(rolesFromClaims));
+};
+
+const resolvePremium = (claims: JwtClaims | null, roles: string[]): boolean => {
+  if (typeof claims?.isPremium === "boolean") {
+    return claims.isPremium;
+  }
+  if (typeof claims?.premium === "boolean") {
+    return claims.premium;
+  }
+
+  return roles.includes("USER_PREMIUM");
+};
+
+const mapProfileToUser = (profile: UserProfileResponse, token?: string | null): User => {
+  const claims = parseJwtClaims(token);
+  const role = resolveRoles(profile.roles, claims);
+
+  return {
+    id: String(profile.id),
+    username: profile.username,
+    email: profile.email ?? "",
+    avatar: profile.avatarUrl ?? undefined,
+    displayName: profile.displayName ?? undefined,
+    status: profile.status ?? undefined,
+    role,
+    isPremium: resolvePremium(claims, role),
+    bio: profile.bio ?? undefined,
+    birthDate: profile.birthDate ?? undefined,
+    country: profile.country ?? undefined,
+    pronouns: profile.pronouns ?? undefined,
+    avatarEffectId: profile.avatarEffectId ?? undefined,
+    bannerEffectId: profile.bannerEffectId ?? undefined,
+    cardEffectId: profile.cardEffectId ?? undefined,
+  };
+};
+
+const normalizeStoredUser = (storedUser: User | null, token?: string | null): User | null => {
+  if (!storedUser) return null;
+
+  const claims = parseJwtClaims(token);
+  const role = resolveRoles(storedUser.role, claims);
+
+  return {
+    ...storedUser,
+    role,
+    isPremium: resolvePremium(claims, role),
+  };
+};
 
 let initializePromise: Promise<void> | null = null;
 
@@ -128,13 +212,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       let resolvedUser: User;
       try {
         const profile = await authService.getMe();
-        resolvedUser = mapProfileToUser(profile);
+        resolvedUser = mapProfileToUser(profile, loginData.token);
       } catch {
+        const claims = parseJwtClaims(loginData.token);
+        const role = resolveRoles([], claims);
         resolvedUser = {
           id: String(loginData.userId),
           username: loginData.userName,
           email: "",
-          role: [],
+          role,
+          isPremium: resolvePremium(claims, role),
         };
       }
 
@@ -211,6 +298,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     socketService.disconnect();
   },
 
+  refreshProfile: async () => {
+    const token = get().token;
+    if (!token) {
+      return;
+    }
+
+    const profile = await authService.getMe();
+    const latestUser = mapProfileToUser(profile, token);
+    await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(latestUser));
+    set({ user: latestUser });
+  },
+
   updateUser: (userData) => {
     set((state) => {
       const newUser = state.user ? { ...state.user, ...userData } : null;
@@ -267,7 +366,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }
 
         const storedUser = userStr ? (JSON.parse(userStr) as User) : null;
-        set({ token, user: storedUser, isAuthenticated: true });
+        const normalizedStoredUser = normalizeStoredUser(storedUser, token);
+        set({ token, user: normalizedStoredUser, isAuthenticated: true });
         setAuthToken(token);
 
         try {
@@ -275,7 +375,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             apiClient.get<UserProfileResponse>("/users/me"),
             10000,
           );
-          const latestUser = mapProfileToUser(profileResponse.data);
+          const latestUser = mapProfileToUser(profileResponse.data, token);
           await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(latestUser));
           set({ user: latestUser, isAuthenticated: true, isLoading: false, hasInitialized: true });
           socketService.connect();

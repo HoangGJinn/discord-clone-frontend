@@ -12,8 +12,6 @@ import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import {
   Alert,
-  Modal,
-  Pressable,
   ScrollView,
   StyleSheet,
   TextInput,
@@ -24,20 +22,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 type UserStatus = 'ONLINE' | 'IDLE' | 'DND' | 'OFFLINE';
-
-interface StatusOption {
-  value: UserStatus;
-  label: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  color: string;
-}
-
-const STATUS_OPTIONS: StatusOption[] = [
-  { value: 'ONLINE', label: 'Trực tuyến', icon: 'ellipse', color: '#23A559' },
-  { value: 'IDLE', label: 'Chờ', icon: 'moon', color: '#F2A31A' },
-  { value: 'DND', label: 'Vui lòng không làm phiền', icon: 'remove-circle', color: '#F23F43' },
-  { value: 'OFFLINE', label: 'Vô hình', icon: 'radio-button-off', color: '#949BA4' },
-];
 
 const normalizeStatus = (status?: string): UserStatus => {
   const value = String(status || 'OFFLINE').toUpperCase();
@@ -60,15 +44,14 @@ export default function EditProfileScreen() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
   const updateUser = useAuthStore((state) => state.updateUser);
+  const previewStatus = normalizeStatus(user?.status);
 
   const [activeTab, setActiveTab] = useState<'MAIN' | 'SERVER'>('MAIN');
-  const [status, setStatus] = useState<UserStatus>(normalizeStatus(user?.status));
   const [displayName, setDisplayName] = useState(user?.displayName || user?.username || '');
   const [pronouns, setPronouns] = useState(user?.pronouns || '');
   const [bio, setBio] = useState(user?.bio || '');
   const [avatarUri, setAvatarUri] = useState(user?.avatar || '');
 
-  const [isStatusSheetVisible, setIsStatusSheetVisible] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
@@ -82,6 +65,21 @@ export default function EditProfileScreen() {
     user?.cardEffectId ? NAMEPLATE_EFFECTS.find((e) => e.id === user.cardEffectId) || null : null
   );
   const [effectModalType, setEffectModalType] = useState<'AVATAR' | 'BACKGROUND' | 'CARD' | null>(null);
+  const isNitro = Boolean(user?.isPremium);
+
+  const openNitroPrompt = () => {
+    Alert.alert(
+      'Cần Nitro',
+      'Bạn cần có Nitro để sử dụng các hiệu ứng hồ sơ.',
+      [
+        { text: 'Để sau', style: 'cancel' },
+        {
+          text: 'Mua Nitro',
+          onPress: () => router.push('/nitro'),
+        },
+      ],
+    );
+  };
 
   const isDirty = useMemo(() => {
     if (!user) return false;
@@ -90,12 +88,21 @@ export default function EditProfileScreen() {
       String(pronouns).trim() !== String(user.pronouns || '').trim() ||
       String(bio).trim() !== String(user.bio || '').trim() ||
       String(avatarUri || '') !== String(user.avatar || '') ||
-      status !== normalizeStatus(user.status) ||
-      (selectedAvatarEffect?.id || '') !== (user.avatarEffectId || '') ||
-      (selectedBgEffect?.id || '') !== (user.bannerEffectId || '') ||
-      (selectedCardEffect?.id || '') !== (user.cardEffectId || '')
+      ((isNitro ? selectedAvatarEffect?.id : '') || '') !== (user.avatarEffectId || '') ||
+      ((isNitro ? selectedBgEffect?.id : '') || '') !== (user.bannerEffectId || '') ||
+      ((isNitro ? selectedCardEffect?.id : '') || '') !== (user.cardEffectId || '')
     );
-  }, [avatarUri, bio, displayName, pronouns, status, user, selectedAvatarEffect, selectedBgEffect, selectedCardEffect]);
+  }, [
+    avatarUri,
+    bio,
+    displayName,
+    pronouns,
+    user,
+    selectedAvatarEffect,
+    selectedBgEffect,
+    selectedCardEffect,
+    isNitro,
+  ]);
 
   if (!user) {
     return (
@@ -181,35 +188,30 @@ export default function EditProfileScreen() {
       pronouns: pronouns.trim() || null,
       bio: bio.trim() || null,
       avatarUrl: avatarUri || null,
-      avatarEffectId: selectedAvatarEffect?.id || "",
-      bannerEffectId: selectedBgEffect?.id || "",
-      cardEffectId: selectedCardEffect?.id || "",
+      avatarEffectId: isNitro ? selectedAvatarEffect?.id || '' : '',
+      bannerEffectId: isNitro ? selectedBgEffect?.id || '' : '',
+      cardEffectId: isNitro ? selectedCardEffect?.id || '' : '',
     };
 
     setIsSaving(true);
     try {
-      const previousStatus = normalizeStatus(user.status);
       const response = await apiClient.put('/users/profile', payload);
       const data = response?.data || {};
-
-      if (status !== previousStatus) {
-        await apiClient.put('/users/me/status', null, {
-          params: {
-            userId: Number(user.id),
-            status,
-          },
-        });
-      }
 
       updateUser({
         displayName: data.displayName ?? trimmedDisplayName,
         pronouns: data.pronouns ?? (pronouns.trim() || undefined),
         bio: data.bio ?? (bio.trim() || undefined),
         avatar: data.avatarUrl ?? (avatarUri || undefined),
-        avatarEffectId: data.avatarEffectId ?? (selectedAvatarEffect?.id || undefined),
-        bannerEffectId: data.bannerEffectId ?? (selectedBgEffect?.id || undefined),
-        cardEffectId: data.cardEffectId ?? (selectedCardEffect?.id || undefined),
-        status,
+        avatarEffectId: isNitro
+          ? data.avatarEffectId ?? (selectedAvatarEffect?.id || undefined)
+          : undefined,
+        bannerEffectId: isNitro
+          ? data.bannerEffectId ?? (selectedBgEffect?.id || undefined)
+          : undefined,
+        cardEffectId: isNitro
+          ? data.cardEffectId ?? (selectedCardEffect?.id || undefined)
+          : undefined,
       });
 
       Alert.alert('Đã lưu', 'Thông tin hồ sơ đã được cập nhật.');
@@ -272,8 +274,12 @@ export default function EditProfileScreen() {
          <View style={styles.previewCard}>
            <View>
              <Image source={{ uri: PLACEHOLDER_BANNER }} style={styles.bannerImage} contentFit="cover" />
-             {selectedBgEffect && (
-               <Image source={selectedBgEffect.uri} style={[styles.bannerImage, styles.bannerEffectImage, { position: 'absolute' }]} contentFit="cover" />
+             {isNitro && selectedBgEffect && (
+               <Image
+                 source={selectedBgEffect.uri}
+                 style={[styles.bannerImage, styles.bannerEffectImage, { position: 'absolute' }]}
+                 contentFit="cover"
+               />
              )}
            </View>
 
@@ -283,9 +289,9 @@ export default function EditProfileScreen() {
                  name={displayName || user.username}
                  uri={avatarUri || undefined}
                  size={90}
-                 status={status}
+                 status={previewStatus}
                />
-               {selectedAvatarEffect && (
+               {isNitro && selectedAvatarEffect && (
                  <Image source={selectedAvatarEffect.uri} style={styles.avatarEffectImage} pointerEvents="none" />
                )}
                <TouchableOpacity
@@ -303,10 +309,6 @@ export default function EditProfileScreen() {
                </TouchableOpacity>
              </View>
  
-             <TouchableOpacity style={styles.statusActionBtn} onPress={() => setIsStatusSheetVisible(true)}>
-               <Ionicons name="radio-button-on-outline" size={20} color={DiscordColors.textPrimary} />
-               <ThemedText style={styles.statusActionText}>Thêm trạng thái</ThemedText>
-             </TouchableOpacity>
            </View>
  
            <View style={styles.previewTextArea}>
@@ -315,6 +317,21 @@ export default function EditProfileScreen() {
              {pronouns ? <ThemedText style={styles.previewSubText}>{pronouns}</ThemedText> : null}
              {bio ? <ThemedText style={styles.previewSubText}>{bio}</ThemedText> : null}
            </View>
+
+           {!isNitro ? (
+             <View style={styles.nitroNoticeCard}>
+               <View style={styles.nitroNoticeHeader}>
+                 <Ionicons name="diamond-outline" size={18} color={DiscordColors.textPrimary} />
+                 <ThemedText style={styles.nitroNoticeTitle}>Cần Nitro để dùng hiệu ứng</ThemedText>
+               </View>
+               <ThemedText style={styles.nitroNoticeText}>
+                 Trang trí ảnh đại diện, Hiệu ứng nền bìa và Hiệu ứng bảng tên chỉ dành cho Nitro.
+               </ThemedText>
+               <TouchableOpacity style={styles.buyNitroBtn} onPress={() => router.push('/nitro')}>
+                 <ThemedText style={styles.buyNitroText}>Mua Nitro</ThemedText>
+               </TouchableOpacity>
+             </View>
+           ) : null}
          </View>
  
          <View style={styles.formCard}>
@@ -360,8 +377,10 @@ export default function EditProfileScreen() {
            <View style={styles.fieldWrap}>
              <ThemedText style={styles.fieldLabel}>Trang Trí Ảnh Đại Diện</ThemedText>
              <TouchableOpacity
-               style={styles.placeholderRow}
-               onPress={() => setEffectModalType('AVATAR')}
+               style={[styles.placeholderRow, !isNitro && styles.lockedRow]}
+               onPress={() => {
+                 setEffectModalType('AVATAR');
+               }}
              >
                {selectedAvatarEffect ? (
                  <View style={styles.thumbnailWrapper}>
@@ -375,13 +394,16 @@ export default function EditProfileScreen() {
                </ThemedText>
                <Ionicons name="chevron-forward" size={20} color={DiscordColors.textMuted} />
              </TouchableOpacity>
+             {!isNitro ? <ThemedText style={styles.lockedHint}>Bạn cần Nitro để sử dụng hiệu ứng này.</ThemedText> : null}
            </View>
  
            <View style={styles.fieldWrap}>
              <ThemedText style={styles.fieldLabel}>Hiệu Ứng Nền Bìa</ThemedText>
              <TouchableOpacity
-               style={styles.placeholderRow}
-               onPress={() => setEffectModalType('BACKGROUND')}
+               style={[styles.placeholderRow, !isNitro && styles.lockedRow]}
+               onPress={() => {
+                 setEffectModalType('BACKGROUND');
+               }}
              >
                {selectedBgEffect ? (
                  <View style={styles.thumbnailWrapper}>
@@ -395,13 +417,16 @@ export default function EditProfileScreen() {
                </ThemedText>
                <Ionicons name="chevron-forward" size={20} color={DiscordColors.textMuted} />
              </TouchableOpacity>
+             {!isNitro ? <ThemedText style={styles.lockedHint}>Bạn cần Nitro để sử dụng hiệu ứng này.</ThemedText> : null}
            </View>
  
            <View style={styles.fieldWrap}>
              <ThemedText style={styles.fieldLabel}>Hiệu Ứng Bảng Tên</ThemedText>
              <TouchableOpacity
-               style={styles.placeholderRow}
-               onPress={() => setEffectModalType('CARD')}
+               style={[styles.placeholderRow, !isNitro && styles.lockedRow]}
+               onPress={() => {
+                 setEffectModalType('CARD');
+               }}
              >
                {selectedCardEffect ? (
                  <View style={styles.thumbnailWrapper}>
@@ -415,54 +440,20 @@ export default function EditProfileScreen() {
                </ThemedText>
                <Ionicons name="chevron-forward" size={20} color={DiscordColors.textMuted} />
              </TouchableOpacity>
+             {!isNitro ? <ThemedText style={styles.lockedHint}>Bạn cần Nitro để sử dụng hiệu ứng này.</ThemedText> : null}
            </View>
          </View>
        </ScrollView>
  
-       <Modal
-         visible={isStatusSheetVisible}
-         transparent
-         animationType="fade"
-         onRequestClose={() => setIsStatusSheetVisible(false)}
-       >
-         <View style={styles.modalOverlay}>
-           <Pressable style={styles.modalBackdrop} onPress={() => setIsStatusSheetVisible(false)} />
-           <View style={styles.statusSheet}>
-             <View style={styles.sheetHandle} />
-             <ThemedText style={styles.statusSheetTitle}>Thay đổi trạng thái trực tuyến</ThemedText>
-             <ThemedText style={styles.statusSectionLabel}>Trạng thái trực tuyến</ThemedText>
- 
-             <View style={styles.statusList}>
-               {STATUS_OPTIONS.map((option) => {
-                 const selected = status === option.value;
-                 return (
-                   <TouchableOpacity
-                     key={option.value}
-                     style={styles.statusRow}
-                     onPress={() => {
-                       setStatus(option.value);
-                       setIsStatusSheetVisible(false);
-                     }}
-                   >
-                     <Ionicons name={option.icon} size={20} color={option.color} />
-                     <ThemedText style={styles.statusLabel}>{option.label}</ThemedText>
-                     <View style={[styles.statusRadio, selected && styles.statusRadioActive]}>
-                       {selected ? <View style={styles.statusRadioInner} /> : null}
-                     </View>
-                   </TouchableOpacity>
-                 );
-               })}
-             </View>
-           </View>
-         </View>
-       </Modal>
-
        <EffectModal
          visible={effectModalType === 'AVATAR'}
          title="Trang Trí Ảnh Đại Diện"
          data={AVATAR_EFFECTS}
          currentSelectedId={selectedAvatarEffect?.id}
          onSelect={setSelectedAvatarEffect}
+         canSelect={isNitro}
+         lockHint="Bạn cần Nitro để sử dụng Trang trí ảnh đại diện."
+         onPressLockedAction={openNitroPrompt}
          onClose={() => setEffectModalType(null)}
        />
        <EffectModal
@@ -471,6 +462,9 @@ export default function EditProfileScreen() {
          data={BACKGROUND_EFFECTS}
          currentSelectedId={selectedBgEffect?.id}
          onSelect={setSelectedBgEffect}
+         canSelect={isNitro}
+         lockHint="Bạn cần Nitro để sử dụng Hiệu ứng nền bìa."
+         onPressLockedAction={openNitroPrompt}
          onClose={() => setEffectModalType(null)}
        />
        <EffectModal
@@ -479,6 +473,9 @@ export default function EditProfileScreen() {
          data={NAMEPLATE_EFFECTS}
          currentSelectedId={selectedCardEffect?.id}
          onSelect={setSelectedCardEffect}
+         canSelect={isNitro}
+         lockHint="Bạn cần Nitro để sử dụng Hiệu ứng bảng tên."
+         onPressLockedAction={openNitroPrompt}
          onClose={() => setEffectModalType(null)}
        />
      </SafeAreaView>
@@ -584,26 +581,50 @@ export default function EditProfileScreen() {
      borderColor: DiscordColors.divider,
      zIndex: 10,
    },
-   statusActionBtn: {
-     marginTop: 18,
-     minHeight: 44,
-     borderRadius: 22,
-     backgroundColor: '#11131A',
-     paddingHorizontal: 16,
-     alignItems: 'center',
-     flexDirection: 'row',
-     gap: 8,
-   },
-   statusActionText: {
-     color: DiscordColors.textPrimary,
-     fontSize: 17 / 2,
-     fontWeight: '700',
-   },
    previewTextArea: {
      paddingHorizontal: Spacing.lg,
      paddingVertical: Spacing.md,
      gap: 2,
    },
+  nitroNoticeCard: {
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.md,
+    borderRadius: 12,
+    padding: Spacing.md,
+    backgroundColor: 'rgba(88,101,242,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(88,101,242,0.45)',
+    gap: 8,
+  },
+  nitroNoticeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  nitroNoticeTitle: {
+    color: DiscordColors.textPrimary,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  nitroNoticeText: {
+    color: DiscordColors.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  buyNitroBtn: {
+    alignSelf: 'flex-start',
+    minHeight: 34,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    backgroundColor: DiscordColors.blurple,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buyNitroText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '800',
+  },
    previewDisplayName: {
      color: DiscordColors.textPrimary,
      fontSize: 21,
@@ -661,87 +682,18 @@ export default function EditProfileScreen() {
      flexDirection: 'row',
      gap: Spacing.md,
    },
+  lockedRow: {
+    opacity: 0.72,
+  },
+  lockedHint: {
+    color: DiscordColors.textMuted,
+    fontSize: 12,
+  },
    placeholderText: {
      flex: 1,
      color: DiscordColors.textPrimary,
      fontSize: 17 / 2,
      fontWeight: '700',
-   },
-   modalOverlay: {
-     flex: 1,
-     justifyContent: 'flex-end',
-   },
-   modalBackdrop: {
-     ...StyleSheet.absoluteFillObject,
-     backgroundColor: 'rgba(0,0,0,0.62)',
-   },
-   statusSheet: {
-     backgroundColor: '#1F212B',
-     borderTopLeftRadius: 18,
-     borderTopRightRadius: 18,
-     paddingHorizontal: Spacing.lg,
-     paddingBottom: 20,
-     paddingTop: Spacing.sm,
-     gap: Spacing.md,
-   },
-   sheetHandle: {
-     alignSelf: 'center',
-     width: 46,
-     height: 5,
-     borderRadius: 999,
-     backgroundColor: DiscordColors.textMuted,
-     opacity: 0.5,
-     marginBottom: Spacing.sm,
-   },
-   statusSheetTitle: {
-     color: DiscordColors.textPrimary,
-     fontSize: 22,
-     fontWeight: '800',
-     textAlign: 'center',
-   },
-   statusSectionLabel: {
-     color: DiscordColors.textSecondary,
-     fontSize: 16,
-     fontWeight: '700',
-     marginTop: 2,
-   },
-   statusList: {
-     borderRadius: 14,
-     overflow: 'hidden',
-     backgroundColor: '#2B2F37',
-   },
-   statusRow: {
-     minHeight: 62,
-     paddingHorizontal: Spacing.md,
-     flexDirection: 'row',
-     alignItems: 'center',
-     borderBottomWidth: StyleSheet.hairlineWidth,
-     borderBottomColor: DiscordColors.divider,
-     gap: Spacing.md,
-   },
-   statusLabel: {
-     color: DiscordColors.textPrimary,
-     fontSize: 17,
-     fontWeight: '800',
-     flex: 1,
-   },
-   statusRadio: {
-     width: 28,
-     height: 28,
-     borderRadius: 14,
-     borderWidth: 2,
-     borderColor: DiscordColors.blurple,
-     alignItems: 'center',
-     justifyContent: 'center',
-   },
-   statusRadioActive: {
-     borderColor: '#6375FF',
-   },
-   statusRadioInner: {
-     width: 12,
-     height: 12,
-     borderRadius: 6,
-     backgroundColor: '#6375FF',
    },
    bannerEffectImage: {
      zIndex: 2,

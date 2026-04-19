@@ -62,6 +62,7 @@ interface FriendState {
   rejectFriendRequest: (friendshipId: number) => Promise<void>;
   cancelFriendRequest: (friendshipId: number) => Promise<void>;
   unfriend: (friendshipId: number) => Promise<void>;
+  updateFriendStatus: (userId: number, newStatus: UserPresenceStatus) => void;
 }
 
 const extractErrorMessage = (error: unknown, fallback = "Request failed"): string => {
@@ -258,5 +259,37 @@ export const useFriendStore = create<FriendState>((set, get) => ({
       set({ error: message, isLoading: false });
       throw new Error(message);
     }
+  },
+
+  updateFriendStatus: (userId, newStatus) => {
+    set((state) => ({
+      friends: state.friends.map((f) => {
+        if (f.senderId === userId) {
+          return { ...f, senderStatus: newStatus };
+        }
+        if (f.receiverId === userId) {
+          return { ...f, receiverStatus: newStatus };
+        }
+        return f;
+      }),
+      receivedRequests: state.receivedRequests.map((r) => {
+        if (r.senderId === userId) {
+          return { ...r, senderStatus: newStatus };
+        }
+        if (r.receiverId === userId) {
+          return { ...r, receiverStatus: newStatus };
+        }
+        return r;
+      }),
+      sentRequests: state.sentRequests.map((s) => {
+        if (s.senderId === userId) {
+          return { ...s, senderStatus: newStatus };
+        }
+        if (s.receiverId === userId) {
+          return { ...s, receiverStatus: newStatus };
+        }
+        return s;
+      }),
+    }));
   },
 }));

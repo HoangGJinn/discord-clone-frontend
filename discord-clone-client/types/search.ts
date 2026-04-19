@@ -34,7 +34,8 @@ export interface SearchResults {
   servers: SearchServer[];
   channels: SearchChannel[];
   members: SearchMember[];
+  friends: SearchMember[];
 }
 
 // ─── Search Type Filter ──────────────────────────────────────
-export type SearchType = 'all' | 'servers' | 'channels' | 'members';
+export type SearchType = 'all' | 'servers' | 'channels' | 'members' | 'friends';
