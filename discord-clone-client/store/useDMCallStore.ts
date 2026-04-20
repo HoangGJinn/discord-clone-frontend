@@ -5,12 +5,13 @@ interface DMCallStore {
   // State
   activeCall: DMCallState | null;
   isConnecting: boolean;
-  isRinging: boolean; // Có cuộc gọi đến đang đổ chuông
+  isRinging: boolean;
   agoraToken: string | null;
   agoraAppId: string | null;
-  
+  agoraChannelName: string | null;
+
   // Actions
-  startCall: (conversationId: string, callerId: string) => Promise<boolean>;
+  startCall: (conversationId: string, callerId: string, callType?: 'VOICE' | 'VIDEO') => Promise<boolean>;
   acceptCall: (conversationId: string, userId: string) => Promise<boolean>;
   declineCall: (conversationId: string, userId: string) => Promise<boolean>;
   endCall: (conversationId: string, userId: string) => Promise<boolean>;
@@ -19,7 +20,7 @@ interface DMCallStore {
   setRinging: (isRinging: boolean) => void;
   updateMuteState: (isMuted: boolean, isDeafened: boolean) => void;
   clearCall: () => void;
-  fetchAgoraToken: (conversationId: string, userId: string) => Promise<string | null>;
+  fetchAgoraToken: (conversationId: string, userId: string) => Promise<{ token: string; appId: string; channelName: string } | null>;
 }
 
 export const useDMCallStore = create<DMCallStore>((set, get) => ({
@@ -29,15 +30,16 @@ export const useDMCallStore = create<DMCallStore>((set, get) => ({
   isRinging: false,
   agoraToken: null,
   agoraAppId: null,
+  agoraChannelName: null,
 
   /**
-   * Bắt đầu cuộc gọi
+   * Bắt đầu cuộc gọi (voice hoặc video)
    */
-  startCall: async (conversationId: string, callerId: string) => {
+  startCall: async (conversationId: string, callerId: string, callType: 'VOICE' | 'VIDEO' = 'VOICE') => {
     try {
       set({ isConnecting: true });
       
-      const callState = await dmCallService.startCall(conversationId, callerId);
+      const callState = await dmCallService.startCall(conversationId, callerId, callType);
       if (callState) {
         set({ 
           activeCall: callState, 
@@ -62,23 +64,24 @@ export const useDMCallStore = create<DMCallStore>((set, get) => ({
   acceptCall: async (conversationId: string, userId: string) => {
     try {
       set({ isConnecting: true });
-      
+
       const callState = await dmCallService.acceptCall(conversationId, userId);
       if (callState) {
         // Lấy Agora token sau khi accept
         const tokenData = await dmCallService.getToken(conversationId, userId);
-        
-        set({ 
+
+        set({
           activeCall: callState,
           agoraToken: tokenData?.token || null,
           agoraAppId: tokenData?.appId || null,
+          agoraChannelName: tokenData?.channelName || null,
           isConnecting: false,
           isRinging: false
         });
-        
+
         return true;
       }
-      
+
       set({ isConnecting: false });
       return false;
     } catch (error) {
@@ -169,7 +172,7 @@ export const useDMCallStore = create<DMCallStore>((set, get) => ({
     try {
       const callState = await dmCallService.updateState(
         activeCall.conversationId,
-        activeCall.callerId, // User hiện tại
+        activeCall.callerId,
         isMuted,
         isDeafened
       );
@@ -191,7 +194,8 @@ export const useDMCallStore = create<DMCallStore>((set, get) => ({
       isConnecting: false,
       isRinging: false,
       agoraToken: null,
-      agoraAppId: null
+      agoraAppId: null,
+      agoraChannelName: null,
     });
   },
 
@@ -204,9 +208,14 @@ export const useDMCallStore = create<DMCallStore>((set, get) => ({
       if (tokenData) {
         set({
           agoraToken: tokenData.token,
-          agoraAppId: tokenData.appId
+          agoraAppId: tokenData.appId,
+          agoraChannelName: tokenData.channelName,
         });
-        return tokenData.token;
+        return {
+          token: tokenData.token,
+          appId: tokenData.appId,
+          channelName: tokenData.channelName,
+        };
       }
       return null;
     } catch (error) {

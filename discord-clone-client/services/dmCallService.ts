@@ -7,11 +7,16 @@ export interface DMCallState {
   receiverId: string;
   callerName: string;
   receiverName: string;
+  callerAvatar?: string;
+  receiverAvatar?: string;
+  callType: 'VOICE' | 'VIDEO';
   status: 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'ENDED' | 'MISSED';
   callerMuted: boolean;
   receiverMuted: boolean;
   callerDeafened: boolean;
   receiverDeafened: boolean;
+  callerCameraOn: boolean;
+  receiverCameraOn: boolean;
 }
 
 export interface AgoraTokenResponse {
@@ -45,13 +50,18 @@ class DMCallService {
   }
 
   /**
-   * Bắt đầu cuộc gọi
+   * Bắt đầu cuộc gọi (voice hoặc video)
    */
-  async startCall(conversationId: string, callerId: string): Promise<DMCallState | null> {
+  async startCall(
+    conversationId: string,
+    callerId: string,
+    callType: 'VOICE' | 'VIDEO' = 'VOICE'
+  ): Promise<DMCallState | null> {
     try {
       const response = await apiClient.post(`${this.basePath}/start`, {
         conversationId,
         callerId,
+        callType,
       });
       return response.data;
     } catch (error) {
@@ -109,13 +119,14 @@ class DMCallService {
   }
 
   /**
-   * Cập nhật trạng thái mute/deafen
+   * Cập nhật trạng thái mute/deafen/camera
    */
   async updateState(
     conversationId: string,
     userId: string,
     isMuted: boolean,
-    isDeafened: boolean
+    isDeafened: boolean,
+    isCameraOn?: boolean
   ): Promise<DMCallState | null> {
     try {
       const response = await apiClient.post(`${this.basePath}/state`, {
@@ -123,6 +134,7 @@ class DMCallService {
         userId,
         isMuted,
         isDeafened,
+        isCameraOn,
       });
       return response.data;
     } catch (error) {

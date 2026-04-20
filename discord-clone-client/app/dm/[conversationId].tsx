@@ -25,6 +25,7 @@ import { EmojiPicker } from '@/components/EmojiPicker';
 import { VoiceCallUI } from '@/components/VoiceCallUI';
 import { useDMStore } from '@/store/useDMStore';
 import { useAuthStore } from '@/store/useAuthStore';
+import { useDMCallStore } from '@/store/useDMCallStore';
 import { DirectMessage, getOtherParticipant } from '@/types/dm';
 import { DiscordColors, Spacing } from '@/constants/theme';
 import { NAMEPLATE_EFFECTS } from '@/constants/profileEffects';
@@ -86,8 +87,9 @@ export default function DMChatScreen() {
   const [emojiPickerVisible, setEmojiPickerVisible] = useState(false);
   const [emojiTargetMessageId, setEmojiTargetMessageId] = useState<string | null>(null);
 
-  // ── Day 5: Voice Call State ─────────────────────────────
+  // ── Day 5: Voice/Video Call State ────────────────────────
   const [voiceCallVisible, setVoiceCallVisible] = useState(false);
+  const [callType, setCallType] = useState<'VOICE' | 'VIDEO'>('VOICE');
 
   // ── Find the other participant from conversations list ─
   const conversation = conversations.find((c) => c.id === conversationId);
@@ -96,25 +98,44 @@ export default function DMChatScreen() {
       ? getOtherParticipant(conversation, user.id)
       : null;
 
-  // ── Voice Call Handlers ─────────────────────────────────
+  // ── Sync with Global Call Store ────────────────────────
+  const activeCall = useDMCallStore((s) => s.activeCall);
+  useEffect(() => {
+    if (activeCall && activeCall.conversationId === conversationId && activeCall.status !== 'ENDED' && activeCall.status !== 'DECLINED') {
+      if (!voiceCallVisible) {
+        setVoiceCallVisible(true);
+        // Sync call type if it's already active
+        setCallType(activeCall.callType);
+      }
+    }
+  }, [activeCall, conversationId, voiceCallVisible]);
+
+  // ── Voice/Video Call Handlers ───────────────────────────
   const handleSendMessageInCall = useCallback(() => {
     // Đóng call UI, quay lại chat (cuộc gọi vẫn tiếp tục ngầm)
     setVoiceCallVisible(false);
   }, []);
 
   const handleLeaveCall = useCallback(() => {
-    console.log('[VoiceCall] Leaving call');
+    console.log('[Call] Leaving call');
     setVoiceCallVisible(false);
   }, []);
 
   const handleMinimizeCall = useCallback(() => {
     setVoiceCallVisible(false);
-    console.log('[VoiceCall] Minimized');
+    console.log('[Call] Minimized');
   }, []);
 
   const handleStartCall = useCallback(() => {
+    setCallType('VOICE');
     setVoiceCallVisible(true);
-    console.log('[VoiceCall] Starting call with:', otherUser?.username);
+    console.log('[VoiceCall] Starting voice call with:', otherUser?.username);
+  }, [otherUser]);
+
+  const handleStartVideoCall = useCallback(() => {
+    setCallType('VIDEO');
+    setVoiceCallVisible(true);
+    console.log('[VideoCall] Starting video call with:', otherUser?.username);
   }, [otherUser]);
 
 
@@ -415,7 +436,7 @@ export default function DMChatScreen() {
                 />
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={() => Alert.alert('Video Call', 'Video call feature coming soon!')}
+                onPress={handleStartVideoCall}
                 style={styles.actionBtn}
               >
                 <Ionicons
@@ -580,10 +601,11 @@ export default function DMChatScreen() {
         onSelectEmoji={handleEmojiSelected}
       />
 
-      {/* Voice Call UI */}
+      {/* Voice/Video Call UI */}
       <VoiceCallUI
         visible={voiceCallVisible}
         conversationId={conversationId || ''}
+        callType={callType}
         remoteUserName={otherUser?.displayName || otherUser?.username || 'Unknown'}
         remoteUserAvatar={otherUser?.avatar}
         remoteUserId={otherUser?.id}

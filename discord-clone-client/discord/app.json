@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "discordcl-rn-frontend",
-    "slug": "d",
+    "name": "discord",
+    "slug": "discord",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "discordclrnfrontend",
+    "scheme": "discord",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -19,9 +19,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false,
-      "usesCleartextTraffic": true,
-      "package": "com.discordclrnfrontend"
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "static",
@@ -49,7 +47,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "e8384432-b0f5-46e0-a08b-4e1f284a16c7"
+        "projectId": "0cb036df-ab53-448f-82ae-a60adf2f310f"
       }
     },
     "owner": "duy2805"
