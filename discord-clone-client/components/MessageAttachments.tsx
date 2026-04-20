@@ -4,7 +4,6 @@ import {
   Alert,
   Modal,
   Platform,
-  NativeModules,
   StyleSheet,
   TouchableOpacity,
   View,
@@ -12,6 +11,7 @@ import {
 import { Image } from 'expo-image';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { ThemedText } from './themed-text';
 import { DiscordColors, Spacing } from '@/constants/theme';
@@ -23,15 +23,9 @@ import {
   isImageAttachment,
 } from '@/utils/attachments';
 
+const DOWNLOAD_DIRECTORY_URI_KEY = '@discordclrnfrontend/download-directory-uri';
 
-
-type DownloadToDownloadsModule = {
-  saveToDownloads: (url: string, fileName: string, mimeType?: string) => Promise<string>;
-};
-
-const { DownloadToDownloads } = NativeModules as {
-  DownloadToDownloads?: DownloadToDownloadsModule;
-};
+const { StorageAccessFramework } = FileSystem;
 
 interface MessageAttachmentsProps {
   attachments: Attachment[];
@@ -69,19 +63,64 @@ function MessageAttachmentsInner({ attachments }: MessageAttachmentsProps) {
     return { target, resolvedFileName, mimeType };
   }, [buildFileMeta]);
 
+  const getSavedDownloadDirectory = useCallback(async () => {
+    const savedDirectoryUri = await AsyncStorage.getItem(DOWNLOAD_DIRECTORY_URI_KEY);
+    if (!savedDirectoryUri) {
+      return null;
+    }
+
+    const directoryInfo = await FileSystem.getInfoAsync(savedDirectoryUri);
+    return directoryInfo.exists ? savedDirectoryUri : null;
+  }, []);
+
+  const pickDownloadDirectory = useCallback(async () => {
+    const savedDirectoryUri = await getSavedDownloadDirectory();
+    if (savedDirectoryUri) {
+      return savedDirectoryUri;
+    }
+
+    const permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync();
+    if (!permissions.granted) {
+      return null;
+    }
+
+    await AsyncStorage.setItem(DOWNLOAD_DIRECTORY_URI_KEY, permissions.directoryUri);
+    return permissions.directoryUri;
+  }, [getSavedDownloadDirectory]);
+
+  const saveDownloadedFileToAndroidFolder = useCallback(async (fileUri: string, fileName: string, mimeType: string) => {
+    const directoryUri = await pickDownloadDirectory();
+    if (!directoryUri) {
+      throw new Error('Folder access was not granted');
+    }
+
+    const baseName = fileName.replace(/\.[^.]+$/, '');
+    const targetUri = await StorageAccessFramework.createFileAsync(directoryUri, baseName, mimeType);
+    const base64Content = await FileSystem.readAsStringAsync(fileUri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    await FileSystem.writeAsStringAsync(targetUri, base64Content, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    return targetUri;
+  }, [pickDownloadDirectory]);
+
   const handleDownload = useCallback(async (attachment: Attachment) => {
     try {
       setDownloadingUrl(attachment.url);
-      const { target, resolvedFileName, mimeType } = await downloadToCache(attachment);
+      const { resolvedFileName, mimeType } = buildFileMeta(
+        attachment.url,
+        attachment.filename,
+        attachment.contentType,
+      );
       const safeName = resolvedFileName;
+      const { target } = await downloadToCache(attachment);
 
       if (Platform.OS === 'android') {
-        if (!DownloadToDownloads?.saveToDownloads) {
-          throw new Error('Native download module is not available');
-        }
-
-        const savedUri = await DownloadToDownloads.saveToDownloads(attachment.url, safeName, mimeType);
-        Alert.alert('Saved', `Saved to Downloads: ${safeName}`);
+        const savedUri = await saveDownloadedFileToAndroidFolder(target, safeName, mimeType);
+        Alert.alert('Saved', 'Saved to the selected folder on your device');
         return savedUri;
       }
 
@@ -99,7 +138,7 @@ function MessageAttachmentsInner({ attachments }: MessageAttachmentsProps) {
     } finally {
       setDownloadingUrl(null);
     }
-  }, [downloadToCache]);
+  }, [buildFileMeta, downloadToCache, saveDownloadedFileToAndroidFolder]);
 
   const handleShare = useCallback(async (attachment: Attachment) => {
     try {
