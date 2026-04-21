@@ -155,37 +155,38 @@ export default function HomeScreen() {
     }
 
     const destination = `/topic/server/${activeServerId}/voice`;
+    const onVoiceMessage = (message: VoiceSocketMessage) => {
+      if (message.type === 'INITIAL_SYNC' && Array.isArray(message.states)) {
+        const nextCounts: Record<number, number> = {};
+        for (const state of message.states) {
+          const channelId = state.channelId;
+          if (!channelId) continue;
+          nextCounts[channelId] = (nextCounts[channelId] || 0) + 1;
+        }
+        setVoiceChannelCounts(nextCounts);
+        return;
+      }
+
+      if (message.type === 'LEAVE' && message.state?.channelId) {
+        setVoiceChannelCounts((current) => {
+          const channelId = message.state?.channelId as number;
+          const currentCount = current[channelId] || 0;
+          return {
+            ...current,
+            [channelId]: Math.max(currentCount - 1, 0),
+          };
+        });
+      }
+    };
 
     const subscribeVoice = async () => {
-      await socketService.subscribe<VoiceSocketMessage>(destination, (message) => {
-        if (message.type === 'INITIAL_SYNC' && Array.isArray(message.states)) {
-          const nextCounts: Record<number, number> = {};
-          for (const state of message.states) {
-            const channelId = state.channelId;
-            if (!channelId) continue;
-            nextCounts[channelId] = (nextCounts[channelId] || 0) + 1;
-          }
-          setVoiceChannelCounts(nextCounts);
-          return;
-        }
-
-        if (message.type === 'LEAVE' && message.state?.channelId) {
-          setVoiceChannelCounts((current) => {
-            const channelId = message.state?.channelId as number;
-            const currentCount = current[channelId] || 0;
-            return {
-              ...current,
-              [channelId]: Math.max(currentCount - 1, 0),
-            };
-          });
-        }
-      });
+      await socketService.subscribe<VoiceSocketMessage>(destination, onVoiceMessage);
     };
 
     void subscribeVoice();
 
     return () => {
-      socketService.unsubscribe(destination);
+      socketService.unsubscribe(destination, onVoiceMessage);
     };
   }, [activeServerId]);
 
@@ -432,7 +433,11 @@ export default function HomeScreen() {
       if (channel.type === 'VOICE') {
         router.push({
           pathname: '/voice/[channelId]',
-          params: { channelId: String(channel.id) },
+          params: {
+            channelId: String(channel.id),
+            channelName: channel.name,
+            serverId: String(activeServerId ?? channel.serverId),
+          },
         });
         return;
       }
@@ -442,7 +447,7 @@ export default function HomeScreen() {
         params: { channelId: String(channel.id) },
       });
     },
-    [router],
+    [router, activeServerId],
   );
 
   const refreshServerDetails = useCallback(async () => {

@@ -1,5 +1,6 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -8,6 +9,9 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+  const insets = useSafeAreaInsets();
+  const tabBottomPadding = Math.max(insets.bottom, 10);
+  const tabHeight = 58 + tabBottomPadding;
 
   return (
     <Tabs
@@ -20,9 +24,9 @@ export default function TabLayout() {
           backgroundColor: DiscordColors.tertiaryBackground,
           borderTopColor: DiscordColors.divider,
           borderTopWidth: 1,
-          height: 66,
+          height: tabHeight,
           paddingTop: 6,
-          paddingBottom: 8,
+          paddingBottom: tabBottomPadding,
         },
         tabBarLabelStyle: {
           fontSize: 11,
