@@ -8,6 +8,7 @@ class RevenueOrder {
   final double amount;
   final String status;
   final String time;
+  final String txnRef;
 
   RevenueOrder({
     required this.orderId,
@@ -16,7 +17,34 @@ class RevenueOrder {
     required this.amount,
     required this.status,
     required this.time,
+    required this.txnRef,
   });
+
+  factory RevenueOrder.fromJson(Map<String, dynamic> json) {
+    final createdAt = json['createdAt'] ?? '';
+    String timeAgo = createdAt.toString();
+    try {
+      final dt = DateTime.parse(createdAt);
+      final diff = DateTime.now().difference(dt);
+      if (diff.inMinutes < 60) {
+        timeAgo = '${diff.inMinutes} phút trước';
+      } else if (diff.inHours < 24) {
+        timeAgo = '${diff.inHours} giờ trước';
+      } else {
+        timeAgo = '${diff.inDays} ngày trước';
+      }
+    } catch (_) {}
+
+    return RevenueOrder(
+      orderId: json['txnRef'] ?? 'N/A',
+      user: json['userName'] ?? 'Unknown',
+      type: (json['amount'] ?? 0) >= 99000 ? 'Nitro Boost' : 'Nitro Classic',
+      amount: (json['amount'] ?? 0).toDouble(),
+      status: json['status'] ?? 'UNKNOWN',
+      time: timeAgo,
+      txnRef: json['txnRef'] ?? '',
+    );
+  }
 }
 
 class RevenueStats {
@@ -36,6 +64,17 @@ class RevenueStats {
     required this.pendingCount,
     required this.failedCount,
   });
+
+  factory RevenueStats.fromJson(Map<String, dynamic> json) {
+    return RevenueStats(
+      totalRevenue: (json['totalRevenue'] ?? 0).toDouble(),
+      totalOrders: (json['totalOrders'] ?? 0).toInt(),
+      successRate: (json['successRate'] ?? 0).toDouble(),
+      successCount: (json['successCount'] ?? 0).toInt(),
+      pendingCount: (json['pendingCount'] ?? 0).toInt(),
+      failedCount: (json['failedCount'] ?? 0).toInt(),
+    );
+  }
 }
 
 class RevenueController extends ChangeNotifier {
@@ -45,51 +84,91 @@ class RevenueController extends ChangeNotifier {
   RevenueStats? _stats;
   bool isLoading = false;
   String? error;
+  String? _statusFilter;
+  int _currentPage = 0;
+  int _totalPages = 0;
+  bool hasMore = true;
 
   RevenueController({AdminApiService? apiService})
       : _apiService = apiService ?? AdminApiService();
 
   List<RevenueOrder> get orders => _orders;
   RevenueStats? get stats => _stats;
+  String? get statusFilter => _statusFilter;
+  int get currentPage => _currentPage;
 
-  Future<void> loadRevenueData({int periodIndex = 1}) async {
+  Future<void> loadRevenueData({int periodIndex = 1, String? statusFilter}) async {
     isLoading = true;
     error = null;
+    _statusFilter = statusFilter;
+    _currentPage = 0;
     notifyListeners();
 
     try {
-      // Simulate API call
-      await Future.delayed(const Duration(milliseconds: 700));
-
-      // Fake data depending on period
-      // 0=Today, 1=Weekly, 2=Monthly
-      double multiplier = periodIndex == 0 ? 1 : (periodIndex == 1 ? 7 : 30);
-
-      _stats = RevenueStats(
-        totalRevenue: 2500000 * multiplier,
-        totalOrders: (15 * multiplier).toInt(),
-        successRate: 98.5,
-        successCount: (14 * multiplier).toInt(),
-        pendingCount: (1 * multiplier).toInt(),
-        failedCount: 0,
-      );
-
-      _orders = List.generate(8, (index) => RevenueOrder(
-        orderId: 'TXN${1000 + index + (periodIndex * 100)}',
-        user: 'user${index}@mail.com',
-        type: index % 3 == 0 ? 'Nitro Classic' : 'Nitro Boost',
-        amount: index % 3 == 0 ? 49000 : 99000,
-        status: index == 0 ? 'PENDING' : (index == 7 ? 'FAILED' : 'SUCCESS'),
-        time: '${index + 1} giờ trước',
-      ));
+      // Load stats and orders in parallel
+      final statsFuture = _apiService.getRevenueStats();
+      final ordersFuture = _apiService.getNitroOrders(status: statusFilter, page: 0, size: 20);
       
+      final statsJson = await statsFuture;
+      _stats = RevenueStats.fromJson(statsJson);
+
+      final ordersJson = await ordersFuture;
+      final content = ordersJson['content'] as List<dynamic>? ?? [];
+      _orders = content.map((e) => RevenueOrder.fromJson(e as Map<String, dynamic>)).toList();
+      _totalPages = ordersJson['totalPages'] ?? 1;
+      hasMore = _currentPage < _totalPages - 1;
     } catch (e) {
       error = e.toString();
+      debugPrint('RevenueController error: $e');
       _orders = [];
       _stats = null;
     } finally {
       isLoading = false;
       notifyListeners();
+    }
+  }
+
+  Future<void> loadMoreOrders() async {
+    if (!hasMore || isLoading) return;
+    _currentPage++;
+    try {
+      final ordersJson = await _apiService.getNitroOrders(
+        status: _statusFilter,
+        page: _currentPage,
+        size: 20,
+      );
+      final content = ordersJson['content'] as List<dynamic>? ?? [];
+      _orders.addAll(content.map((e) => RevenueOrder.fromJson(e as Map<String, dynamic>)));
+      _totalPages = ordersJson['totalPages'] ?? 1;
+      hasMore = _currentPage < _totalPages - 1;
+      notifyListeners();
+    } catch (e) {
+      _currentPage--;
+      debugPrint('LoadMore error: $e');
+    }
+  }
+
+  Future<bool> approveOrder(String txnRef) async {
+    try {
+      await _apiService.approveOrder(txnRef);
+      // Refresh data after approve
+      await loadRevenueData(statusFilter: _statusFilter);
+      return true;
+    } catch (e) {
+      debugPrint('Approve error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> rejectOrder(String txnRef) async {
+    try {
+      await _apiService.rejectOrder(txnRef);
+      // Refresh data after reject
+      await loadRevenueData(statusFilter: _statusFilter);
+      return true;
+    } catch (e) {
+      debugPrint('Reject error: $e');
+      return false;
     }
   }
 }

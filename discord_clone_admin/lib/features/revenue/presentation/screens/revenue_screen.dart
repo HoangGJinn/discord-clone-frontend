@@ -1,6 +1,5 @@
 import 'package:discord_clone_admin/core/theme/app_colors.dart';
 import 'package:discord_clone_admin/features/revenue/presentation/controllers/revenue_controller.dart';
-import 'package:discord_clone_admin/shared/widgets/placeholder_chart.dart';
 import 'package:discord_clone_admin/shared/widgets/section_header.dart';
 import 'package:discord_clone_admin/shared/widgets/skeleton_list.dart';
 import 'package:flutter/material.dart';
@@ -13,37 +12,30 @@ class RevenueScreen extends StatefulWidget {
   State<RevenueScreen> createState() => _RevenueScreenState();
 }
 
-class _RevenueScreenState extends State<RevenueScreen> with SingleTickerProviderStateMixin {
+class _RevenueScreenState extends State<RevenueScreen> {
   late final RevenueController _controller;
-  late TabController _tabController;
-  int _periodIndex = 1; // 0=Today, 1=Weekly, 2=Monthly
+  int _selectedStatusIndex = 0;
 
-  static const _periods = ['Hôm nay', 'Tuần này', 'Tháng này'];
+  static const _statusFilters = [
+    _StatusFilterItem(label: 'Tất cả', value: null, icon: Icons.list_rounded),
+    _StatusFilterItem(label: 'Chờ duyệt', value: 'PENDING', icon: Icons.hourglass_empty_rounded),
+    _StatusFilterItem(label: 'Thành công', value: 'CONFIRMED', icon: Icons.check_circle_rounded),
+    _StatusFilterItem(label: 'Thất bại', value: 'FAILED', icon: Icons.cancel_rounded),
+  ];
 
   @override
   void initState() {
     super.initState();
     _controller = RevenueController();
     _loadData();
-    _tabController = TabController(length: _periods.length, vsync: this, initialIndex: _periodIndex);
-    _tabController.addListener(() {
-      if (!_tabController.indexIsChanging && _periodIndex != _tabController.index) {
-        setState(() => _periodIndex = _tabController.index);
-        _loadData();
-      }
-    });
   }
 
   void _loadData() {
-    _controller.loadRevenueData(periodIndex: _periodIndex).then((_) {
+    _controller.loadRevenueData(
+      statusFilter: _statusFilters[_selectedStatusIndex].value,
+    ).then((_) {
       if (mounted) setState(() {});
     });
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
   }
 
   @override
@@ -60,44 +52,19 @@ class _RevenueScreenState extends State<RevenueScreen> with SingleTickerProvider
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
                   child: SectionHeader(
-                    title: 'Doanh Thu',
-                    subtitle: 'Theo dõi doanh thu từ Nitro',
+                    title: 'Doanh Thu & Đơn Hàng Nitro',
+                    subtitle: 'Quản lý thanh toán VNPay',
                     action: _ExportBtn(),
                   ),
-                ),
-              ),
-              // ── Period tabs ─────────────────────────────────
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  child: _PeriodTabBar(controller: _tabController, periods: _periods),
                 ),
               ),
               // ── Summary cards ──────────────────────────────
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-                  child: _controller.isLoading 
-                    ? const Center(child: CircularProgressIndicator()) 
+                  child: _controller.isLoading
+                    ? const Center(child: CircularProgressIndicator())
                     : _RevenueSummaryCards(stats: _controller.stats),
-                ),
-              ),
-              // ── Revenue chart ──────────────────────────────
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SectionHeader(title: 'Biểu đồ doanh thu'),
-                      const SizedBox(height: 12),
-                      const PlaceholderChart(
-                        height: 210,
-                        label: 'Doanh thu theo kỳ chọn',
-                        accentColor: AppColors.gold,
-                      ),
-                    ],
-                  ),
                 ),
               ),
               // ── Order status ───────────────────────────────
@@ -109,6 +76,28 @@ class _RevenueScreenState extends State<RevenueScreen> with SingleTickerProvider
                       : _OrderStatusRow(stats: _controller.stats),
                 ),
               ),
+              // ── Status filter chips ─────────────────────────
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  child: SizedBox(
+                    height: 36,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _statusFilters.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 8),
+                      itemBuilder: (_, i) => _FilterChip(
+                        item: _statusFilters[i],
+                        selected: _selectedStatusIndex == i,
+                        onTap: () {
+                          setState(() => _selectedStatusIndex = i);
+                          _loadData();
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+              ),
               // ── Recent transactions ────────────────────────
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
@@ -116,9 +105,20 @@ class _RevenueScreenState extends State<RevenueScreen> with SingleTickerProvider
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const SectionHeader(
-                        title: 'Giao dịch gần đây',
-                        subtitle: 'Nitro orders mới nhất',
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: SectionHeader(
+                              title: 'Danh sách đơn hàng',
+                              subtitle: 'Nitro orders',
+                            ),
+                          ),
+                          if (!_controller.isLoading)
+                            Text(
+                              '${_controller.orders.length} đơn',
+                              style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+                            ),
+                        ],
                       ),
                       const SizedBox(height: 12),
                       Container(
@@ -129,58 +129,182 @@ class _RevenueScreenState extends State<RevenueScreen> with SingleTickerProvider
                         ),
                         child: _controller.isLoading
                             ? const SkeletonList(itemCount: 8, showAvatar: false, showTrailing: true)
-                            : ListView.separated(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                itemCount: _controller.orders.length,
-                                separatorBuilder: (_, __) => const Divider(height: 1),
-                                itemBuilder: (_, i) => _OrderTile(order: _controller.orders[i]),
-                              ),
+                            : _controller.orders.isEmpty
+                                ? const Padding(
+                                    padding: EdgeInsets.all(40),
+                                    child: Center(
+                                      child: Text(
+                                        'Không có đơn hàng nào',
+                                        style: TextStyle(color: AppColors.textMuted),
+                                      ),
+                                    ),
+                                  )
+                                : ListView.separated(
+                                    shrinkWrap: true,
+                                    physics: const NeverScrollableScrollPhysics(),
+                                    itemCount: _controller.orders.length,
+                                    separatorBuilder: (_, __) => const Divider(height: 1),
+                                    itemBuilder: (_, i) => _OrderTile(
+                                      order: _controller.orders[i],
+                                      onApprove: () => _handleApprove(_controller.orders[i]),
+                                      onReject: () => _handleReject(_controller.orders[i]),
+                                    ),
+                                  ),
                       ),
                     ],
                   ),
                 ),
               ),
+              // ── Error display ──────────────────────────────
+              if (_controller.error != null)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.danger.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.danger.withOpacity(0.3)),
+                      ),
+                      child: Text(
+                        'Lỗi: ${_controller.error}',
+                        style: const TextStyle(color: AppColors.danger, fontSize: 13),
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
       ),
     );
   }
+
+  void _handleApprove(RevenueOrder order) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.cardBg,
+        title: const Text('Xác nhận duyệt', style: TextStyle(color: AppColors.textPrimary)),
+        content: Text(
+          'Duyệt đơn hàng ${order.orderId}?\nSố tiền: ${NumberFormat.currency(locale: 'vi_VN', symbol: 'đ').format(order.amount)}',
+          style: const TextStyle(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Hủy', style: TextStyle(color: AppColors.textMuted)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final success = await _controller.approveOrder(order.txnRef);
+              if (mounted) {
+                setState(() {});
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text(success ? 'Đã duyệt đơn hàng' : 'Lỗi khi duyệt'),
+                  backgroundColor: success ? AppColors.success : AppColors.danger,
+                ));
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.success),
+            child: const Text('Duyệt', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _handleReject(RevenueOrder order) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.cardBg,
+        title: const Text('Xác nhận từ chối', style: TextStyle(color: AppColors.textPrimary)),
+        content: Text(
+          'Từ chối đơn hàng ${order.orderId}?',
+          style: const TextStyle(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Hủy', style: TextStyle(color: AppColors.textMuted)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final success = await _controller.rejectOrder(order.txnRef);
+              if (mounted) {
+                setState(() {});
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text(success ? 'Đã từ chối đơn hàng' : 'Lỗi khi từ chối'),
+                  backgroundColor: success ? AppColors.warning : AppColors.danger,
+                ));
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
+            child: const Text('Từ chối', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-// ── Period tab bar ────────────────────────────────────────────
-class _PeriodTabBar extends StatelessWidget {
-  const _PeriodTabBar({required this.controller, required this.periods});
-  final TabController controller;
-  final List<String> periods;
+// ── Filter chip ───────────────────────────────────────────────
+class _StatusFilterItem {
+  const _StatusFilterItem({required this.label, required this.value, required this.icon});
+  final String label;
+  final String? value;
+  final IconData icon;
+}
+
+class _FilterChip extends StatelessWidget {
+  const _FilterChip({required this.item, required this.selected, required this.onTap});
+  final _StatusFilterItem item;
+  final bool selected;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 40,
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: TabBar(
-        controller: controller,
-        indicatorSize: TabBarIndicatorSize.tab,
-        indicator: BoxDecoration(
-          color: AppColors.cardBg,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppColors.blurple.withOpacity(0.3)),
+    final color = _colorForValue(item.value);
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? color.withOpacity(0.15) : AppColors.surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: selected ? color.withOpacity(0.4) : AppColors.border),
         ),
-        dividerHeight: 0,
-        labelColor: AppColors.textPrimary,
-        unselectedLabelColor: AppColors.textMuted,
-        labelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-        unselectedLabelStyle: const TextStyle(fontSize: 13),
-        padding: const EdgeInsets.all(3),
-        tabs: periods.map((p) => Tab(text: p, height: 34)).toList(),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(item.icon, color: selected ? color : AppColors.textMuted, size: 13),
+            const SizedBox(width: 5),
+            Text(
+              item.label,
+              style: TextStyle(
+                color: selected ? color : AppColors.textMuted,
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+              ),
+            ),
+          ],
+        ),
       ),
     );
+  }
+
+  Color _colorForValue(String? value) {
+    switch (value) {
+      case 'PENDING': return AppColors.warning;
+      case 'CONFIRMED': return AppColors.success;
+      case 'FAILED': return AppColors.danger;
+      default: return AppColors.blurple;
+    }
   }
 }
 
@@ -192,9 +316,9 @@ class _RevenueSummaryCards extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (stats == null) return const SizedBox.shrink();
-    
+
     final formatter = NumberFormat.currency(locale: 'vi_VN', symbol: 'đ');
-    
+
     final items = [
       _SummaryItem(label: 'Tổng doanh thu', value: formatter.format(stats!.totalRevenue), unit: 'VNĐ', color: AppColors.gold, icon: Icons.account_balance_wallet_rounded),
       _SummaryItem(label: 'Số đơn hàng', value: '${stats!.totalOrders}', unit: 'đơn', color: AppColors.blurple, icon: Icons.receipt_long_rounded),
@@ -265,7 +389,7 @@ class _SummaryCard extends StatelessWidget {
   }
 }
 
-// ── Order status donut placeholder ───────────────────────────
+// ── Order status row ─────────────────────────────────────────
 class _OrderStatusRow extends StatelessWidget {
   final RevenueStats? stats;
   const _OrderStatusRow({this.stats});
@@ -290,9 +414,8 @@ class _OrderStatusRow extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header row
-          Row(
-            children: const [
+          const Row(
+            children: [
               Icon(Icons.pie_chart_rounded, color: AppColors.gold, size: 22),
               SizedBox(width: 10),
               Text(
@@ -306,7 +429,6 @@ class _OrderStatusRow extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          // Status badges - equal width columns
           Row(
             children: statuses
                 .map(
@@ -360,15 +482,16 @@ class _StatusChip {
 
 class _OrderTile extends StatelessWidget {
   final RevenueOrder order;
+  final VoidCallback onApprove;
+  final VoidCallback onReject;
 
-  const _OrderTile({required this.order});
+  const _OrderTile({required this.order, required this.onApprove, required this.onReject});
 
   @override
   Widget build(BuildContext context) {
-    // Map status to colors
     Color statusColor;
     switch (order.status) {
-      case 'SUCCESS':
+      case 'CONFIRMED':
         statusColor = AppColors.success;
         break;
       case 'PENDING':
@@ -382,22 +505,27 @@ class _OrderTile extends StatelessWidget {
     }
 
     final formatter = NumberFormat.currency(locale: 'vi_VN', symbol: 'đ');
+    final isPending = order.status == 'PENDING';
 
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: const Icon(Icons.receipt_long_rounded, color: AppColors.blurple, size: 20),
-      ),
-      title: Row(
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
+          // Icon
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(Icons.receipt_long_rounded, color: AppColors.blurple, size: 20),
+          ),
+          const SizedBox(width: 12),
+          // Order info
           Expanded(
-            flex: 2,
+            flex: 3,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -406,7 +534,7 @@ class _OrderTile extends StatelessWidget {
                   style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 13),
                 ),
                 Text(
-                  order.user,
+                  '${order.user} · ${order.type}',
                   style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -414,22 +542,9 @@ class _OrderTile extends StatelessWidget {
               ],
             ),
           ),
+          // Amount + status
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  order.type,
-                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
-                ),
-                Text(
-                  order.time,
-                  style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
+            flex: 2,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
@@ -437,21 +552,55 @@ class _OrderTile extends StatelessWidget {
                   formatter.format(order.amount),
                   style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 13),
                 ),
-                Container(
-                  margin: const EdgeInsets.only(top: 4),
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    order.status,
-                    style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.w600),
-                  ),
+                const SizedBox(height: 2),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: statusColor.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        order.status,
+                        style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
+          // Action buttons for PENDING orders
+          if (isPending) ...[
+            const SizedBox(width: 8),
+            InkWell(
+              onTap: onApprove,
+              borderRadius: BorderRadius.circular(6),
+              child: Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: AppColors.success.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Icon(Icons.check_rounded, color: AppColors.success, size: 16),
+              ),
+            ),
+            const SizedBox(width: 4),
+            InkWell(
+              onTap: onReject,
+              borderRadius: BorderRadius.circular(6),
+              child: Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: AppColors.danger.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Icon(Icons.close_rounded, color: AppColors.danger, size: 16),
+              ),
+            ),
+          ],
         ],
       ),
     );

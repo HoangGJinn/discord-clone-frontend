@@ -14,6 +14,7 @@ class AuditLogsScreen extends StatefulWidget {
 class _AuditLogsScreenState extends State<AuditLogsScreen> {
   late final AuditLogsController _controller;
   final _searchController = TextEditingController();
+  final _scrollController = ScrollController();
   int _selectedAction = 0;
 
   static const _actionTypes = [
@@ -31,6 +32,7 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
     _controller = AuditLogsController();
     _loadLogs();
     _searchController.addListener(_onSearchChanged);
+    _scrollController.addListener(_onScroll);
   }
 
   void _onSearchChanged() {
@@ -39,6 +41,14 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
         _loadLogs();
       }
     });
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      _controller.loadMore().then((_) {
+        if (mounted) setState(() {});
+      });
+    }
   }
 
   void _loadLogs() {
@@ -53,6 +63,7 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -64,6 +75,7 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
         child: RefreshIndicator(
           onRefresh: () async => _loadLogs(),
           child: CustomScrollView(
+            controller: _scrollController,
             slivers: [
               // ── Header ─────────────────────────────────────
               SliverToBoxAdapter(
@@ -72,7 +84,9 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                   child: SectionHeader(
                     title: 'Audit Logs',
                     subtitle: 'Lịch sử hành động của admin/hệ thống',
-                    action: _DateFilterBtn(),
+                    action: _DateFilterBtn(onDateSelected: (range) {
+                      // Future: filter by date range
+                    }),
                   ),
                 ),
               ),
@@ -116,11 +130,19 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                             style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
                           ),
                           const Spacer(),
-                          const Icon(Icons.refresh_rounded, color: AppColors.textMuted, size: 14),
-                          const SizedBox(width: 4),
-                          const Text(
-                            'Tự động refresh: 30s',
-                            style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+                          InkWell(
+                            onTap: _loadLogs,
+                            borderRadius: BorderRadius.circular(4),
+                            child: Row(
+                              children: const [
+                                Icon(Icons.refresh_rounded, color: AppColors.blurple, size: 14),
+                                SizedBox(width: 4),
+                                Text(
+                                  'Làm mới',
+                                  style: TextStyle(color: AppColors.blurple, fontSize: 12, fontWeight: FontWeight.w500),
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
@@ -131,7 +153,7 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
               ),
               // ── Log list ───────────────────────────────────
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                 sliver: SliverToBoxAdapter(
                   child: Container(
                     decoration: BoxDecoration(
@@ -163,6 +185,41 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                   ),
                 ),
               ),
+              // ── Load more indicator ────────────────────────
+              if (_controller.hasMore && !_controller.isLoading)
+                const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Center(
+                      child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  ),
+                ),
+              // ── Error display ──────────────────────────────
+              if (_controller.error != null)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.danger.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.danger.withOpacity(0.3)),
+                      ),
+                      child: Text(
+                        'Lỗi: ${_controller.error}',
+                        style: const TextStyle(color: AppColors.danger, fontSize: 13),
+                      ),
+                    ),
+                  ),
+                ),
+              // Bottom padding
+              const SliverToBoxAdapter(child: SizedBox(height: 16)),
             ],
           ),
         ),
@@ -245,6 +302,13 @@ class _LogTile extends StatelessWidget {
                     ],
                   ),
                 ),
+                if (entry.ipAddress != null && entry.ipAddress!.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    'IP: ${entry.ipAddress}',
+                    style: const TextStyle(color: AppColors.textMuted, fontSize: 10),
+                  ),
+                ],
               ],
             ),
           ),
@@ -303,10 +367,34 @@ class _ActionChip extends StatelessWidget {
 
 // ── Date filter button ────────────────────────────────────────
 class _DateFilterBtn extends StatelessWidget {
+  final Function(DateTimeRange?)? onDateSelected;
+
+  const _DateFilterBtn({this.onDateSelected});
+
   @override
   Widget build(BuildContext context) {
     return OutlinedButton.icon(
-      onPressed: () {},
+      onPressed: () async {
+        final range = await showDateRangePicker(
+          context: context,
+          firstDate: DateTime(2024),
+          lastDate: DateTime.now(),
+          builder: (context, child) {
+            return Theme(
+              data: Theme.of(context).copyWith(
+                colorScheme: const ColorScheme.dark(
+                  primary: AppColors.blurple,
+                  surface: AppColors.cardBg,
+                ),
+              ),
+              child: child!,
+            );
+          },
+        );
+        if (range != null) {
+          onDateSelected?.call(range);
+        }
+      },
       icon: const Icon(Icons.calendar_today_rounded, size: 14, color: AppColors.textSecondary),
       label: const Text('Lọc ngày', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
       style: OutlinedButton.styleFrom(
@@ -325,19 +413,4 @@ class _ActionType {
   final String label;
   final IconData icon;
   final Color color;
-}
-
-class _LogEntry {
-  const _LogEntry({
-    required this.action,
-    required this.actor,
-    required this.target,
-    required this.time,
-    required this.type,
-  });
-  final String action;
-  final String actor;
-  final String target;
-  final String time;
-  final int type; // index into _actionTypes
 }

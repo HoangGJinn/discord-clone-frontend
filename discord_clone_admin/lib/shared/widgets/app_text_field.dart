@@ -10,6 +10,9 @@ class AppTextField extends StatefulWidget {
     this.errorText,
     this.obscureText = false,
     this.onChanged,
+    this.validator,
+    this.keyboardType,
+    this.maxLines = 1,
     super.key,
   });
 
@@ -19,6 +22,9 @@ class AppTextField extends StatefulWidget {
   final String? errorText;
   final bool obscureText;
   final ValueChanged<String>? onChanged;
+  final String? Function(String?)? validator;
+  final TextInputType? keyboardType;
+  final int? maxLines;
 
   @override
   State<AppTextField> createState() => _AppTextFieldState();
@@ -49,14 +55,17 @@ class _AppTextFieldState extends State<AppTextField> {
           ),
         ),
         const SizedBox(height: AppSpacing.xs),
-        TextField(
+        TextFormField(
           controller: widget.controller,
           onChanged: widget.onChanged,
+          validator: widget.validator,
+          keyboardType: widget.keyboardType,
+          maxLines: widget.maxLines,
           obscureText: widget.obscureText && _hideText,
           cursorColor: AppColors.textPrimary,
           style: const TextStyle(color: AppColors.textPrimary, fontSize: 16),
           onTapOutside: (_) => FocusScope.of(context).unfocus(),
-          onSubmitted: (_) => FocusScope.of(context).unfocus(),
+          onFieldSubmitted: (_) => FocusScope.of(context).unfocus(),
           onEditingComplete: () {},
           decoration: InputDecoration(
             hintText: widget.hintText,

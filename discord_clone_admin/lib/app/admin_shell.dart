@@ -6,6 +6,7 @@ import 'package:discord_clone_admin/features/moderation/presentation/screens/rep
 import 'package:discord_clone_admin/features/revenue/presentation/screens/revenue_screen.dart';
 import 'package:discord_clone_admin/features/servers/presentation/screens/servers_screen.dart';
 import 'package:discord_clone_admin/features/users/presentation/screens/users_screen.dart';
+import 'package:discord_clone_admin/features/effects/presentation/screens/effects_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -32,6 +33,7 @@ class _AdminShellState extends State<AdminShell> {
     _NavItem(icon: Icons.people_alt_rounded, label: 'Users'),
     _NavItem(icon: Icons.shield_rounded, label: 'Moderation'),
     _NavItem(icon: Icons.attach_money_rounded, label: 'Doanh Thu'),
+    _NavItem(icon: Icons.auto_awesome_rounded, label: 'Hiệu Ứng'),
     _NavItem(icon: Icons.history_rounded, label: 'Audit Logs'),
   ];
 
@@ -41,6 +43,7 @@ class _AdminShellState extends State<AdminShell> {
     UsersScreen(),
     ModerationHomeScreen(),
     RevenueScreen(),
+    EffectsScreen(),
     AuditLogsScreen(),
   ];
 
