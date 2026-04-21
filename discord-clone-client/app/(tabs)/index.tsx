@@ -45,6 +45,7 @@ import socketService from '@/services/socketService';
 import { useDMStore } from '@/store/useDMStore';
 import { ConversationItem } from '@/components/ConversationItem';
 import { Conversation, getOtherParticipant } from '@/types/dm';
+import { isImageAttachment } from '@/utils/attachments';
 
 interface VoiceSocketMessage {
   type?: 'JOIN' | 'LEAVE' | 'UPDATE_STATE' | 'INITIAL_SYNC';
@@ -54,6 +55,45 @@ interface VoiceSocketMessage {
   states?: {
     channelId?: number;
   }[];
+}
+
+function buildLastMessagePreview(conversation: Conversation) {
+  const lastMessage = conversation.lastMessage;
+  if (!lastMessage) return undefined;
+
+  const content = (lastMessage.content || '').trim();
+  if (content) {
+    return content;
+  }
+
+  const attachments = lastMessage.attachments || [];
+  if (!attachments.length) {
+    return undefined;
+  }
+
+  const hasGiftAttachment = attachments.some((attachment) => {
+    const filename = (attachment.filename || '').toLowerCase();
+    const contentType = (attachment.contentType || '').toLowerCase();
+    const url = (attachment.url || '').toLowerCase();
+    return (
+      filename.includes('gift') ||
+      contentType.includes('gift') ||
+      url.includes('gift')
+    );
+  });
+
+  if (hasGiftAttachment) {
+    return 'Sent a gift';
+  }
+
+  const hasImage = attachments.some((attachment) => isImageAttachment(attachment));
+  if (hasImage && attachments.length === 1) {
+    return 'Photo';
+  }
+  if (hasImage) {
+    return `${attachments.length} attachments`;
+  }
+  return attachments.length === 1 ? 'File' : `${attachments.length} files`;
 }
 
 export default function HomeScreen() {
@@ -565,7 +605,7 @@ export default function HomeScreen() {
       return (
         <ConversationItem
           participant={other}
-          lastMessageContent={item.lastMessage?.content}
+          lastMessageContent={buildLastMessagePreview(item)}
           lastMessageSender={
             item.lastMessage
               ? String(item.lastMessage.sender?.id) === String(user.id)

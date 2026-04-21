@@ -10,23 +10,26 @@ import {
   VoiceState,
 } from '@/services/voiceService';
 import { ChannelResponse, getChannelById } from '@/services/serverService';
-import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
+  Dimensions,
   PanResponder,
+  PixelRatio,
   PermissionsAndroid,
   Platform,
   ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
   ToastAndroid,
-  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ControlBar } from '@/app/voice/components/ControlBar';
+import { InviteBanner } from '@/app/voice/components/InviteBanner';
+import { VoiceParticipantLayout } from '@/app/voice/components/VoiceParticipantLayout';
+import { ViewModeSwitch } from '@/app/voice/components/ViewModeSwitch';
+import { VoiceHeader } from '@/app/voice/components/VoiceHeader';
+import { styles } from '@/app/voice/styles';
 
 // Agora — chỉ import khi không phải web (native module)
 let createAgoraRtcEngine: any = null;
@@ -56,144 +59,14 @@ if (Platform.OS !== 'web') {
   }
 }
 
-// ─── Avatar helpers ───────────────────────────────────────────────────────────
-
-const AVATAR_COLORS = ['#5865F2', '#3BA55C', '#FAA61A', '#ED4245', '#9B84EE', '#EB459E'];
-
-const avatarColor = (id: string) => {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash);
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
-};
-
-const initials = (name: string) => {
-  const w = name.trim().split(' ');
-  return w.length >= 2 ? (w[0][0] + w[w.length - 1][0]).toUpperCase() : name.slice(0, 2).toUpperCase();
-};
-
-// ─── Participant Card ─────────────────────────────────────────────────────────
-
-function ParticipantCard({
-  state,
-  isSpeaking,
-  hasVideo,
-  videoSourceType,
-  remoteUid,
-  isLocal,
-  variant = 'grid',
-  isPinned = false,
-  onPress,
-}: {
-  state: VoiceState;
-  isSpeaking: boolean;
-  hasVideo: boolean;
-  videoSourceType?: number;
-  remoteUid?: number;
-  isLocal: boolean;
-  variant?: 'grid' | 'featured' | 'pip' | 'strip';
-  isPinned?: boolean;
-  onPress?: () => void;
-}) {
-  const color = avatarColor(state.userId);
-  const label = state.userId;
-  const shortName = label.length > 12 ? label.slice(0, 12) + '…' : label;
-  const speaking = isSpeaking && !state.isMuted;
-
-  return (
-    <TouchableOpacity
-      activeOpacity={onPress ? 0.85 : 1}
-      onPress={onPress}
-      style={[
-        styles.cardTouchable,
-        variant === 'featured' && styles.cardTouchableFeatured,
-        variant === 'pip' && styles.cardTouchablePip,
-        variant === 'strip' && styles.cardTouchableStrip,
-      ]}
-      disabled={!onPress}
-    >
-      <View
-        style={[
-          styles.card,
-          variant === 'featured' && styles.cardFeatured,
-          variant === 'pip' && styles.cardPip,
-          variant === 'strip' && styles.cardStrip,
-          speaking && styles.cardSpeaking,
-        ]}
-      >
-      {/* PHẦN HIỂN THỊ CHÍNH (VIDEO HOẶC AVATAR) */}
-      {hasVideo && RtcSurfaceView && (isLocal || remoteUid !== undefined) ? (
-        <View style={styles.videoCardContainer}>
-          {(() => {
-            // For remote streams, let SDK pick the bound source to avoid black frames on some devices.
-            const shouldForceSourceType = Boolean(isLocal);
-            const baseCanvas: any = {
-              uid: isLocal ? 0 : remoteUid,
-              renderMode: RenderModeType.RenderModeHidden,
-            };
-
-            if (shouldForceSourceType) {
-              baseCanvas.sourceType = videoSourceType ?? VideoSourceType.VideoSourceCameraPrimary;
-            }
-
-            return (
-          <RtcSurfaceView
-            style={styles.videoViewFull}
-            canvas={baseCanvas}
-          />
-            );
-          })()}
-        </View>
-      ) : (
-        <View style={styles.avatarModeContainer}>
-          <View style={[styles.avatarCircle, { backgroundColor: color }]}>
-            <Text style={styles.avatarText}>{initials(label)}</Text>
-          </View>
-        </View>
-      )}
-
-      {/* OVERLAY: TÊN (GÓC DƯỚI TRÁI) */}
-      <View style={styles.nameTagOverlay}>
-        <Text style={styles.nameTagText}>{shortName}</Text>
-      </View>
-
-      {isPinned && (
-        <View style={styles.pinBadgeOverlay}>
-          <View style={styles.statusBadgeCircle}>
-            <Ionicons name="pin" size={12} color="#fff" />
-          </View>
-        </View>
-      )}
-
-      <View
-        style={[
-          styles.statusBadgesOverlay,
-          variant === 'featured' && styles.statusBadgesOverlayFeatured,
-        ]}
-      >
-        {state.isDeafened && (
-          <View style={styles.statusBadgeCircle}>
-            <Ionicons name="volume-mute" size={12} color="#fff" />
-          </View>
-        )}
-        {state.isMuted && (
-          <View style={styles.statusBadgeCircle}>
-            <Ionicons name="mic-off" size={12} color="#fff" />
-          </View>
-        )}
-        {state.hasScreenShare && (
-          <View style={styles.statusBadgeCircle}>
-            <Ionicons name="desktop-outline" size={12} color="#fff" />
-          </View>
-        )}
-      </View>
-      </View>
-    </TouchableOpacity>
-  );
-}
-
 type RemoteVideoUidEntry = {
   cameraUid?: number;
   screenUid?: number;
+};
+
+type ParticipantVideoAspectEntry = {
+  camera?: number;
+  screen?: number;
 };
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
@@ -229,14 +102,21 @@ export default function VoiceRoomScreen() {
   const [channelInfo, setChannelInfo] = useState<ChannelResponse | null>(null);
   const [pinnedVideoUserId, setPinnedVideoUserId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'spotlight' | 'grid'>('spotlight');
+  const [matchSharerView, setMatchSharerView] = useState(true);
+  const [participantVideoAspectMap, setParticipantVideoAspectMap] = useState<
+    Record<string, ParticipantVideoAspectEntry>
+  >({});
 
   const engineRef = useRef<any>(null);
   const uidToUserIdMap = useRef<Map<number, string>>(new Map());
   const remoteUidMapRef = useRef<Record<string, RemoteVideoUidEntry>>({});
+  const participantVideoAspectRef = useRef<Record<string, ParticipantVideoAspectEntry>>({});
   const participantsRef = useRef<VoiceState[]>([]);
   const isMutedRef = useRef(false);
   const isDeafenedRef = useRef(false);
   const isScreenSharingRef = useRef(false);
+  const screenCaptureUsesSourceTypeRef = useRef(false);
+  const activeScreenSourceTypeRef = useRef<number | undefined>(undefined);
   const screenSharePendingRef = useRef(false);
   const screenSharePublishedRef = useRef(false);
   const screenShareActivationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -266,6 +146,36 @@ export default function VoiceRoomScreen() {
     remoteUidMapRef.current = next;
     setRemoteUidMap(next);
   }, []);
+
+  const setParticipantVideoAspect = useCallback(
+    (participantUserId: string, sourceHint: 'camera' | 'screen', width: number, height: number) => {
+      if (!participantUserId || width <= 0 || height <= 0) {
+        return;
+      }
+      const aspect = width / height;
+      if (!Number.isFinite(aspect) || aspect <= 0) {
+        return;
+      }
+
+      const currentEntry = participantVideoAspectRef.current[participantUserId] ?? {};
+      const previousAspect = currentEntry[sourceHint];
+      if (previousAspect && Math.abs(previousAspect - aspect) < 0.01) {
+        return;
+      }
+
+      const nextEntry: ParticipantVideoAspectEntry = {
+        ...currentEntry,
+        [sourceHint]: aspect,
+      };
+      const nextMap = {
+        ...participantVideoAspectRef.current,
+        [participantUserId]: nextEntry,
+      };
+      participantVideoAspectRef.current = nextMap;
+      setParticipantVideoAspectMap(nextMap);
+    },
+    []
+  );
 
   const getParticipantVideoUid = useCallback(
     (participant: VoiceState) => {
@@ -304,6 +214,25 @@ export default function VoiceRoomScreen() {
       }
 
       return undefined;
+    },
+    [remoteUidMap, userId]
+  );
+
+  const getParticipantHasScreenStream = useCallback(
+    (participant: VoiceState) => {
+      if (participant.userId === userId) {
+        return Boolean(
+          participant.hasScreenShare ||
+            isScreenSharingRef.current ||
+            screenSharePendingRef.current ||
+            screenSharePublishedRef.current
+        );
+      }
+      const rawEntry = (remoteUidMap as Record<string, RemoteVideoUidEntry | number>)[participant.userId];
+      if (typeof rawEntry === 'number') {
+        return false;
+      }
+      return Boolean(rawEntry?.screenUid !== undefined || participant.hasScreenShare);
     },
     [remoteUidMap, userId]
   );
@@ -420,13 +349,28 @@ export default function VoiceRoomScreen() {
         participantsRef.current.some((participant) => participant.userId === candidateUserId);
 
       const normalizeIncomingState = (state: any): VoiceState => {
+        const incomingUserId = String(state?.userId ?? '');
+        const previousState = participantsRef.current.find(
+          (participant) => participant.userId === incomingUserId
+        );
         const mutedValue = state?.isMuted ?? state?.muted ?? false;
         const deafenedValue = state?.isDeafened ?? state?.deafened ?? false;
-        const hasCameraValue = state?.hasCamera ?? state?.isHasCamera ?? false;
-        const hasScreenShareValue = state?.hasScreenShare ?? state?.screenShare ?? false;
+        const hasCameraInPayload =
+          Object.prototype.hasOwnProperty.call(state ?? {}, 'hasCamera') ||
+          Object.prototype.hasOwnProperty.call(state ?? {}, 'isHasCamera');
+        const hasScreenShareInPayload =
+          Object.prototype.hasOwnProperty.call(state ?? {}, 'hasScreenShare') ||
+          Object.prototype.hasOwnProperty.call(state ?? {}, 'screenShare');
+
+        const hasCameraValue = hasCameraInPayload
+          ? Boolean(state?.hasCamera ?? state?.isHasCamera)
+          : previousState?.hasCamera ?? false;
+        const hasScreenShareValue = hasScreenShareInPayload
+          ? Boolean(state?.hasScreenShare ?? state?.screenShare)
+          : previousState?.hasScreenShare ?? false;
 
         return {
-          userId: String(state?.userId ?? ''),
+          userId: incomingUserId,
           channelId: Number.isFinite(Number(state?.channelId)) ? Number(state.channelId) : channelIdNum,
           serverId: Number.isFinite(Number(state?.serverId)) ? Number(state.serverId) : serverIdNum,
           sessionId: state?.sessionId,
@@ -441,12 +385,22 @@ export default function VoiceRoomScreen() {
         const roomStates = msg.states
           .map((state) => normalizeIncomingState(state))
           .filter((state) => inCurrentChannel(state.channelId));
-        const hasLocal = roomStates.some((state) => state.userId === userId);
+        const mergedRoomStates = roomStates.map((state) => {
+          const previousState = participantsRef.current.find(
+            (participant) => participant.userId === state.userId
+          );
+          return {
+            ...state,
+            hasCamera: previousState?.hasCamera ?? state.hasCamera,
+            hasScreenShare: previousState?.hasScreenShare ?? state.hasScreenShare,
+          };
+        });
+        const hasLocal = mergedRoomStates.some((state) => state.userId === userId);
         setParticipants(
           hasLocal
-            ? roomStates
+            ? mergedRoomStates
             : [
-                ...roomStates,
+                ...mergedRoomStates,
                 {
                   userId,
                   channelId: channelIdNum,
@@ -698,6 +652,10 @@ export default function VoiceRoomScreen() {
             engine.enableAudioVolumeIndication(300, 3, true);
           },
           onFirstLocalVideoFrame: (source: number, width: number, height: number, elapsed: number) => {
+            const sourceHint: 'camera' | 'screen' = isScreenSourceType(source)
+              ? 'screen'
+              : 'camera';
+            setParticipantVideoAspect(userId, sourceHint, width, height);
             if (isScreenSourceType(source)) {
               if (__DEV__) {
                 console.log('[Voice] onFirstLocalVideoFrame(screen):', JSON.stringify({ source, width, height, elapsed }));
@@ -719,7 +677,7 @@ export default function VoiceRoomScreen() {
               );
             }
 
-            if (isScreenSourceType(source) && newState !== 0) {
+            if (newState !== 0 && (isScreenSourceType(source) || screenSharePendingRef.current)) {
               announceScreenShareStarted();
             }
           },
@@ -798,27 +756,45 @@ export default function VoiceRoomScreen() {
             if (enabled) {
               ensureRemoteVideoSubscription(remoteUid);
             }
+            const currentParticipant = participantsRef.current.find((p) => p.userId === userAccount);
+            const entry = remoteUidMapRef.current[userAccount] ?? {};
+            const isScreenTrack = entry.screenUid === remoteUid && entry.cameraUid !== remoteUid;
+            const nextHasCamera = isScreenTrack
+              ? currentParticipant?.hasCamera ?? false
+              : enabled;
+            const nextHasScreenShare = isScreenTrack
+              ? enabled
+              : currentParticipant?.hasScreenShare ?? false;
             updateParticipant({
               userId: userAccount,
               channelId: channelIdNum,
               serverId: serverIdNum,
-              isMuted: participantsRef.current.find((p) => p.userId === userAccount)?.isMuted ?? false,
-              isDeafened: participantsRef.current.find((p) => p.userId === userAccount)?.isDeafened ?? false,
-              hasCamera: enabled,
-              hasScreenShare: participantsRef.current.find((p) => p.userId === userAccount)?.hasScreenShare ?? false,
+              isMuted: currentParticipant?.isMuted ?? false,
+              isDeafened: currentParticipant?.isDeafened ?? false,
+              hasCamera: nextHasCamera,
+              hasScreenShare: nextHasScreenShare,
             });
           },
           onUserMuteVideo: (_connection: any, remoteUid: number, muted: boolean) => {
             const userAccount = mapRemoteUidToParticipant(remoteUid, 'camera');
             if (!userAccount) return;
+            const currentParticipant = participantsRef.current.find((p) => p.userId === userAccount);
+            const entry = remoteUidMapRef.current[userAccount] ?? {};
+            const isScreenTrack = entry.screenUid === remoteUid && entry.cameraUid !== remoteUid;
+            const nextHasCamera = isScreenTrack
+              ? currentParticipant?.hasCamera ?? false
+              : !muted;
+            const nextHasScreenShare = isScreenTrack
+              ? !muted
+              : currentParticipant?.hasScreenShare ?? false;
             updateParticipant({
               userId: userAccount,
               channelId: channelIdNum,
               serverId: serverIdNum,
-              isMuted: participantsRef.current.find((p) => p.userId === userAccount)?.isMuted ?? false,
-              isDeafened: participantsRef.current.find((p) => p.userId === userAccount)?.isDeafened ?? false,
-              hasCamera: !muted,
-              hasScreenShare: participantsRef.current.find((p) => p.userId === userAccount)?.hasScreenShare ?? false,
+              isMuted: currentParticipant?.isMuted ?? false,
+              isDeafened: currentParticipant?.isDeafened ?? false,
+              hasCamera: nextHasCamera,
+              hasScreenShare: nextHasScreenShare,
             });
           },
           onVideoSizeChanged: (
@@ -837,6 +813,20 @@ export default function VoiceRoomScreen() {
               : 'camera';
             const userAccount = mapRemoteUidToParticipant(remoteUid, sourceHint);
             ensureRemoteVideoSubscription(remoteUid);
+            if (userAccount) {
+              const currentParticipant = participantsRef.current.find((p) => p.userId === userAccount);
+              updateParticipant({
+                userId: userAccount,
+                channelId: channelIdNum,
+                serverId: serverIdNum,
+                isMuted: currentParticipant?.isMuted ?? false,
+                isDeafened: currentParticipant?.isDeafened ?? false,
+                hasCamera: sourceHint === 'camera' ? true : currentParticipant?.hasCamera ?? false,
+                hasScreenShare:
+                  sourceHint === 'screen' ? true : currentParticipant?.hasScreenShare ?? false,
+              });
+              setParticipantVideoAspect(userAccount, sourceHint, width, height);
+            }
 
             if (__DEV__) {
               console.log(
@@ -956,6 +946,10 @@ export default function VoiceRoomScreen() {
       clearScreenShareActivationTimeout();
       screenSharePendingRef.current = false;
       screenSharePublishedRef.current = false;
+      screenCaptureUsesSourceTypeRef.current = false;
+      activeScreenSourceTypeRef.current = undefined;
+      participantVideoAspectRef.current = {};
+      setParticipantVideoAspectMap({});
       // Cleanup
       if (engineRef.current) {
         try {
@@ -1004,6 +998,7 @@ export default function VoiceRoomScreen() {
     clearParticipants,
     handleVoiceSocketMessage,
     clearScreenShareActivationTimeout,
+    setParticipantVideoAspect,
   ]);
 
   // ── Controls ──────────────────────────────────────────────────────────────
@@ -1101,6 +1096,8 @@ export default function VoiceRoomScreen() {
           clearScreenShareActivationTimeout();
           screenSharePendingRef.current = false;
           screenSharePublishedRef.current = false;
+          screenCaptureUsesSourceTypeRef.current = false;
+          activeScreenSourceTypeRef.current = undefined;
           setIsScreenSharing(false);
           if (Platform.OS === 'android') {
             ToastAndroid.show('Đã tắt chia sẻ màn hình để bật camera', ToastAndroid.SHORT);
@@ -1214,10 +1211,17 @@ export default function VoiceRoomScreen() {
   const getParticipantVideoSourceType = useCallback((participant: VoiceState) => {
     const screenSourceType =
       VideoSourceType?.VideoSourceScreenPrimary ?? VideoSourceType?.VideoSourceScreen;
-    return participant.hasScreenShare
-      ? screenSourceType
-      : VideoSourceType?.VideoSourceCameraPrimary;
-  }, []);
+    const fallbackScreenSourceType = VideoSourceType?.VideoSourceScreen ?? screenSourceType;
+    if (participant.hasScreenShare) {
+      if (participant.userId === userId) {
+        return screenCaptureUsesSourceTypeRef.current
+          ? activeScreenSourceTypeRef.current ?? screenSourceType
+          : fallbackScreenSourceType;
+      }
+      return fallbackScreenSourceType;
+    }
+    return VideoSourceType?.VideoSourceCameraPrimary;
+  }, [userId]);
 
   const toggleScreenShare = useCallback(async () => {
     const engine = engineRef.current;
@@ -1234,16 +1238,27 @@ export default function VoiceRoomScreen() {
     const next = !isScreenSharing;
     const screenSourceType =
       VideoSourceType?.VideoSourceScreenPrimary ?? VideoSourceType?.VideoSourceScreen;
+    const fallbackScreenSourceType = VideoSourceType?.VideoSourceScreen ?? screenSourceType;
 
     try {
+      let startedWithSourceTypeApi = false;
       if (next) {
+        const windowSize = Dimensions.get('window');
+        const screenWidthPx = PixelRatio.getPixelSizeForLayoutSize(windowSize.width);
+        const screenHeightPx = PixelRatio.getPixelSizeForLayoutSize(windowSize.height);
+        const shortestEdge = Math.max(720, Math.floor(Math.min(screenWidthPx, screenHeightPx)));
+        const longestEdge = Math.max(1280, Math.floor(Math.max(screenWidthPx, screenHeightPx)));
+        const isPortraitCapture = windowSize.height >= windowSize.width;
+        const captureWidth = isPortraitCapture ? shortestEdge : longestEdge;
+        const captureHeight = isPortraitCapture ? longestEdge : shortestEdge;
+
         const captureParams = ScreenCaptureParameters2
           ? new ScreenCaptureParameters2()
           : { captureVideo: true };
         captureParams.captureVideo = true;
         captureParams.captureAudio = false;
         captureParams.videoParams = {
-          dimensions: { width: 1280, height: 720 },
+          dimensions: { width: captureWidth, height: captureHeight },
           frameRate: 15,
           bitrate: 0,
         };
@@ -1275,11 +1290,18 @@ export default function VoiceRoomScreen() {
             );
             if (byTypeRes === undefined || (typeof byTypeRes === 'number' && byTypeRes >= 0)) {
               startSucceeded = true;
+              startedWithSourceTypeApi = true;
+              screenCaptureUsesSourceTypeRef.current = true;
+              activeScreenSourceTypeRef.current = screenSourceType;
             } else {
-              console.warn('[Voice] startScreenCaptureBySourceType failed, fallback to startScreenCapture:', byTypeRes);
+              if (__DEV__) {
+                console.log('[Voice] startScreenCaptureBySourceType failed, fallback to startScreenCapture:', byTypeRes);
+              }
             }
           } catch (byTypeStartError) {
-            console.warn('[Voice] startScreenCaptureBySourceType threw, fallback to startScreenCapture:', byTypeStartError);
+            if (__DEV__) {
+              console.log('[Voice] startScreenCaptureBySourceType threw, fallback to startScreenCapture:', byTypeStartError);
+            }
           }
         }
 
@@ -1288,18 +1310,26 @@ export default function VoiceRoomScreen() {
           const startRes = engine.startScreenCapture?.(captureParams);
           if (startRes === undefined || (typeof startRes === 'number' && startRes >= 0)) {
             startSucceeded = true;
+            screenCaptureUsesSourceTypeRef.current = false;
+            activeScreenSourceTypeRef.current = fallbackScreenSourceType;
           } else {
             throw new Error(`startScreenCapture failed: ${startRes}`);
           }
         }
 
-        const previewRes = engine.startPreview?.(screenSourceType);
+        const previewSourceType = screenCaptureUsesSourceTypeRef.current
+          ? screenSourceType
+          : fallbackScreenSourceType;
+        const previewRes = engine.startPreview?.(previewSourceType);
         if (typeof previewRes === 'number' && previewRes < 0) {
           console.warn('[Voice] startPreview(screen) failed:', previewRes);
         }
       } else {
         let stopSucceeded = false;
-        const stopPreviewRes = engine.stopPreview?.(screenSourceType);
+        const previewSourceType = screenCaptureUsesSourceTypeRef.current
+          ? screenSourceType
+          : fallbackScreenSourceType;
+        const stopPreviewRes = engine.stopPreview?.(previewSourceType);
         if (typeof stopPreviewRes === 'number' && stopPreviewRes < 0) {
           console.warn('[Voice] stopPreview(screen) failed:', stopPreviewRes);
         }
@@ -1349,6 +1379,26 @@ export default function VoiceRoomScreen() {
       });
 
       if (next) {
+        if (!startedWithSourceTypeApi) {
+          // Legacy capture API may not emit screen-specific first-frame callbacks reliably.
+          screenSharePendingRef.current = false;
+          screenSharePublishedRef.current = true;
+          clearScreenShareActivationTimeout();
+          sendVoiceAction({
+            type: 'UPDATE_STATE',
+            state: toWireVoiceState({
+              userId,
+              channelId: channelIdNum,
+              serverId: serverIdNum,
+              isMuted: isMutedRef.current,
+              isDeafened: isDeafenedRef.current,
+              hasCamera: false,
+              hasScreenShare: true,
+            }),
+          });
+          return;
+        }
+
         // Wait for local screen frames before notifying other participants.
         screenSharePendingRef.current = true;
         screenSharePublishedRef.current = false;
@@ -1376,6 +1426,8 @@ export default function VoiceRoomScreen() {
       } else {
         screenSharePendingRef.current = false;
         screenSharePublishedRef.current = false;
+        screenCaptureUsesSourceTypeRef.current = false;
+        activeScreenSourceTypeRef.current = undefined;
         clearScreenShareActivationTimeout();
 
         sendVoiceAction({
@@ -1395,6 +1447,8 @@ export default function VoiceRoomScreen() {
       clearScreenShareActivationTimeout();
       screenSharePendingRef.current = false;
       screenSharePublishedRef.current = false;
+      screenCaptureUsesSourceTypeRef.current = false;
+      activeScreenSourceTypeRef.current = undefined;
       setIsScreenSharing(false);
       updateParticipant({
         userId,
@@ -1426,13 +1480,28 @@ export default function VoiceRoomScreen() {
     videoParticipants.find((participant) => participant.userId === pinnedVideoUserId) ||
     videoParticipants[0];
   const hasAnyVideo = videoParticipants.length > 0;
-  const isSpotlightMode = viewMode === 'spotlight' && hasAnyVideo;
+  const shouldForceGridForSmallVideoGroup =
+    viewMode === 'spotlight' && videoParticipants.length > 1 && videoParticipants.length <= 3;
+  const isSpotlightMode = viewMode === 'spotlight' && hasAnyVideo && !shouldForceGridForSmallVideoGroup;
   const listParticipants = featuredParticipant
     ? participants.filter((participant) => participant.userId !== featuredParticipant.userId)
     : participants;
   const localParticipant = participants.find((participant) => participant.userId === userId);
   const remoteVideoParticipants = listParticipants.filter(
     (participant) => participant.userId !== userId && (participant.hasCamera || participant.hasScreenShare)
+  );
+  const getParticipantMediaAspectRatio = useCallback(
+    (participant: VoiceState) => {
+      const aspectEntry = participantVideoAspectMap[participant.userId];
+      if (participant.hasScreenShare) {
+        return aspectEntry?.screen ?? 9 / 16;
+      }
+      if (participant.hasCamera) {
+        return aspectEntry?.camera;
+      }
+      return undefined;
+    },
+    [participantVideoAspectMap]
   );
 
   const pipPanResponder = useRef(
@@ -1462,49 +1531,14 @@ export default function VoiceRoomScreen() {
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={handleLeave} style={styles.headerBtn}>
-          <Ionicons name="chevron-down" size={26} color="#fff" />
-        </TouchableOpacity>
-
-        <View style={styles.headerCenter}>
-          <Text style={styles.headerChannel} numberOfLines={1}>
-            {resolvedChannelName || 'Voice channel'}
-          </Text>
-          <View style={styles.statusRow}>
-            <View
-              style={[
-                styles.statusDot,
-                {
-                  backgroundColor:
-                    status === 'connected' ? '#3BA55C' : status === 'error' ? '#ED4245' : '#FAA61A',
-                },
-              ]}
-            />
-            <Text style={styles.statusText}>
-              {status === 'connected'
-                ? 'Đã kết nối'
-                : status === 'error'
-                  ? 'Lỗi kết nối'
-                  : 'Đang kết nối...'}
-            </Text>
-          </View>
-          <Text style={styles.memberCountText}>{participants.length} người trong phòng</Text>
-        </View>
-
-        <TouchableOpacity style={styles.headerBtn} onPress={toggleDeafen}>
-          <Ionicons
-            name={isDeafened ? 'volume-mute' : 'volume-high'}
-            size={22}
-            color={isDeafened ? '#ED4245' : '#fff'}
-          />
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.headerBtn}>
-          <Ionicons name="person-add-outline" size={22} color="#fff" />
-        </TouchableOpacity>
-      </View>
+      <VoiceHeader
+        channelName={resolvedChannelName}
+        status={status}
+        participantCount={participants.length}
+        isDeafened={isDeafened}
+        onLeave={handleLeave}
+        onToggleDeafen={toggleDeafen}
+      />
 
       {/* Participant Grid */}
       <ScrollView
@@ -1513,514 +1547,56 @@ export default function VoiceRoomScreen() {
         showsVerticalScrollIndicator={false}
       >
         {hasAnyVideo && (
-          <View style={styles.viewModeBar}>
-            <TouchableOpacity
-              style={[styles.viewModeBtn, viewMode === 'spotlight' && styles.viewModeBtnActive]}
-              onPress={() => setViewMode('spotlight')}
-            >
-              <Ionicons
-                name="scan-outline"
-                size={14}
-                color={viewMode === 'spotlight' ? '#fff' : '#b9bbbe'}
-              />
-              <Text style={[styles.viewModeBtnText, viewMode === 'spotlight' && styles.viewModeBtnTextActive]}>
-                Spotlight
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.viewModeBtn, viewMode === 'grid' && styles.viewModeBtnActive]}
-              onPress={() => setViewMode('grid')}
-            >
-              <Ionicons
-                name="grid-outline"
-                size={14}
-                color={viewMode === 'grid' ? '#fff' : '#b9bbbe'}
-              />
-              <Text style={[styles.viewModeBtnText, viewMode === 'grid' && styles.viewModeBtnTextActive]}>
-                Grid
-              </Text>
-            </TouchableOpacity>
-          </View>
+          <ViewModeSwitch
+            viewMode={viewMode}
+            onChangeMode={setViewMode}
+            matchSharerView={matchSharerView}
+            onToggleMatchSharerView={() => setMatchSharerView((prev) => !prev)}
+          />
         )}
 
-        {participants.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Ionicons name="people-outline" size={48} color="#4f545c" />
-            <Text style={styles.emptyText}>Chưa có ai trong phòng</Text>
-          </View>
-        ) : (
-          <>
-            {isSpotlightMode && featuredParticipant ? (
-              <View style={styles.fullVideoLayout}>
-                <ParticipantCard
-                  key={featuredParticipant.userId}
-                  state={featuredParticipant}
-                  isSpeaking={speakingUsers.has(featuredParticipant.userId)}
-                  hasVideo={Boolean(featuredParticipant.hasCamera || featuredParticipant.hasScreenShare)}
-                  videoSourceType={getParticipantVideoSourceType(featuredParticipant)}
-                  remoteUid={getParticipantVideoUid(featuredParticipant)}
-                  isLocal={featuredParticipant.userId === userId}
-                  variant="featured"
-                  isPinned={Boolean(pinnedVideoUserId)}
-                  onPress={() => setPinnedVideoUserId(null)}
-                />
-
-                {localParticipant && featuredParticipant.userId !== userId && (
-                  <Animated.View
-                    style={[
-                      styles.localPipOverlay,
-                      {
-                        transform: [{ translateX: pipPosition.x }, { translateY: pipPosition.y }],
-                      },
-                    ]}
-                    {...pipPanResponder.panHandlers}
-                  >
-                    <ParticipantCard
-                      key={`pip-${userId}`}
-                      state={localParticipant}
-                      isSpeaking={speakingUsers.has(userId)}
-                      hasVideo={Boolean((localParticipant.hasCamera ?? isCameraOn) || (localParticipant.hasScreenShare ?? isScreenSharing))}
-                      videoSourceType={getParticipantVideoSourceType(localParticipant)}
-                      remoteUid={getParticipantVideoUid(localParticipant)}
-                      isLocal
-                      variant="pip"
-                    />
-                  </Animated.View>
-                )}
-
-                {remoteVideoParticipants.length > 0 && (
-                  <View style={styles.remoteStrip}>
-                    {remoteVideoParticipants.map((participant) => (
-                        <ParticipantCard
-                          key={`strip-${participant.userId}`}
-                          state={participant}
-                          isSpeaking={speakingUsers.has(participant.userId)}
-                          hasVideo={Boolean(participant.hasCamera || participant.hasScreenShare)}
-                          videoSourceType={getParticipantVideoSourceType(participant)}
-                          remoteUid={getParticipantVideoUid(participant)}
-                          isLocal={participant.userId === userId}
-                          variant="strip"
-                          onPress={() =>
-                            setPinnedVideoUserId((prev) =>
-                              prev === participant.userId ? null : participant.userId
-                            )
-                          }
-                        />
-                      ))}
-                  </View>
-                )}
-              </View>
-            ) : (
-              <View style={styles.grid}>
-                {participants.map((p) => (
-                  <ParticipantCard
-                    key={p.userId}
-                    state={p}
-                    isSpeaking={speakingUsers.has(p.userId)}
-                    hasVideo={Boolean(p.hasCamera || p.hasScreenShare)}
-                    videoSourceType={getParticipantVideoSourceType(p)}
-                    remoteUid={getParticipantVideoUid(p)}
-                    isLocal={p.userId === userId}
-                    onPress={
-                      p.hasCamera || p.hasScreenShare
-                        ? () =>
-                            setPinnedVideoUserId((prev) =>
-                              prev === p.userId ? null : p.userId
-                            )
-                        : undefined
-                    }
-                  />
-                ))}
-              </View>
-            )}
-          </>
-        )}
+        <VoiceParticipantLayout
+          participants={participants}
+          isSpotlightMode={isSpotlightMode}
+          featuredParticipant={featuredParticipant}
+          localParticipant={localParticipant}
+          remoteVideoParticipants={remoteVideoParticipants}
+          speakingUsers={speakingUsers}
+          userId={userId}
+          pinnedVideoUserId={pinnedVideoUserId}
+          setPinnedVideoUserId={setPinnedVideoUserId}
+          isCameraOn={isCameraOn}
+          isScreenSharing={isScreenSharing}
+          pipPosition={pipPosition}
+          pipPanHandlers={pipPanResponder.panHandlers}
+          getParticipantVideoSourceType={getParticipantVideoSourceType}
+          getParticipantVideoUid={getParticipantVideoUid}
+          getParticipantHasScreenStream={getParticipantHasScreenStream}
+          getParticipantMediaAspectRatio={getParticipantMediaAspectRatio}
+          matchSharerView={matchSharerView}
+          onFlipCamera={flipCamera}
+          rtcSurfaceView={RtcSurfaceView}
+          renderModeType={RenderModeType}
+          videoSourceTypeEnum={VideoSourceType}
+        />
       </ScrollView>
 
       {/* Invite Banner */}
-      {!isSpotlightMode && (
-        <TouchableOpacity style={styles.inviteBanner} activeOpacity={0.7}>
-          <View style={styles.inviteIcon}>
-            <Ionicons name="person-add-outline" size={20} color="#b9bbbe" />
-          </View>
-          <View style={styles.inviteText}>
-            <Text style={styles.inviteTitle}>Thêm người vào Trò Chuyện Thoại</Text>
-            <Text style={styles.inviteSub}>Cho nhóm biết bạn đang ở đây!</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color="#72767d" />
-        </TouchableOpacity>
-      )}
+      {!isSpotlightMode && <InviteBanner />}
 
-      {/* Control Bar */}
-      <View style={styles.controls}>
-        {/* Camera */}
-        <TouchableOpacity
-          style={[styles.controlBtn, isCameraOn && styles.controlBtnActive]}
-          onPress={toggleCamera}
-        >
-          <Ionicons
-            name={isCameraOn ? 'videocam' : 'videocam-off-outline'}
-            size={24}
-            color={isCameraOn ? '#fff' : '#b9bbbe'}
-          />
-        </TouchableOpacity>
-
-        {/* Screen share */}
-        <TouchableOpacity
-          style={[styles.controlBtn, isScreenSharing && styles.controlBtnActive]}
-          onPress={toggleScreenShare}
-        >
-          <Ionicons
-            name={isScreenSharing ? 'desktop' : 'desktop-outline'}
-            size={22}
-            color={isScreenSharing ? '#fff' : '#b9bbbe'}
-          />
-        </TouchableOpacity>
-
-        {/* Flip camera */}
-        <TouchableOpacity
-          style={[styles.controlBtn, !isCameraOn && { opacity: 0.5 }]}
-          onPress={flipCamera}
-        >
-          <Ionicons name="camera-reverse-outline" size={26} color="#fff" />
-        </TouchableOpacity>
-
-        {/* Mic */}
-        <TouchableOpacity
-          style={[styles.controlBtn, isMuted && styles.controlBtnActive]}
-          onPress={toggleMute}
-        >
-          <Ionicons
-            name={isMuted ? 'mic-off' : 'mic-outline'}
-            size={24}
-            color={isMuted ? '#fff' : '#b9bbbe'}
-          />
-        </TouchableOpacity>
-
-        {/* Chat */}
-        <TouchableOpacity style={styles.controlBtn} onPress={() => router.back()}>
-          <Ionicons name="chatbubble-outline" size={24} color="#b9bbbe" />
-        </TouchableOpacity>
-
-        {/* Sound / Deafen */}
-        <TouchableOpacity
-          style={[styles.controlBtn, isDeafened && styles.controlBtnActive]}
-          onPress={toggleDeafen}
-        >
-          <Ionicons
-            name={isDeafened ? 'volume-mute' : 'volume-medium-outline'}
-            size={24}
-            color={isDeafened ? '#fff' : '#b9bbbe'}
-          />
-        </TouchableOpacity>
-
-        {/* Leave */}
-        <TouchableOpacity style={styles.leaveBtn} onPress={handleLeave}>
-          <Ionicons
-            name="call"
-            size={24}
-            color="#fff"
-            style={{ transform: [{ rotate: '135deg' }] }}
-          />
-        </TouchableOpacity>
-      </View>
+      <ControlBar
+        isCameraOn={isCameraOn}
+        isScreenSharing={isScreenSharing}
+        isMuted={isMuted}
+        isDeafened={isDeafened}
+        onToggleCamera={toggleCamera}
+        onToggleScreenShare={toggleScreenShare}
+        onToggleMute={toggleMute}
+        onBackToChat={() => router.back()}
+        onToggleDeafen={toggleDeafen}
+        onLeave={handleLeave}
+      />
     </SafeAreaView>
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: '#23272a',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: '#2c2f33',
-    borderBottomWidth: 1,
-    borderBottomColor: '#202225',
-    gap: 8,
-  },
-  headerBtn: {
-    padding: 8,
-  },
-  headerCenter: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  headerChannel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  statusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 4,
-  },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  statusText: {
-    fontSize: 12,
-    color: '#72767d',
-  },
-  memberCountText: {
-    fontSize: 11,
-    color: '#b9bbbe',
-    marginTop: 4,
-  },
-  participantArea: {
-    flex: 1,
-    backgroundColor: '#23272a',
-  },
-  participantContent: {
-    padding: 12,
-    flexGrow: 1,
-  },
-  participantContentVideo: {
-    padding: 8,
-    flexGrow: 1,
-  },
-  viewModeBar: {
-    flexDirection: 'row',
-    alignSelf: 'center',
-    backgroundColor: 'rgba(32, 34, 37, 0.86)',
-    borderRadius: 999,
-    padding: 4,
-    gap: 4,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  viewModeBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  viewModeBtnActive: {
-    backgroundColor: '#5865f2',
-  },
-  viewModeBtnText: {
-    fontSize: 12,
-    color: '#b9bbbe',
-    fontWeight: '600',
-  },
-  viewModeBtnTextActive: {
-    color: '#fff',
-  },
-  emptyState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 12,
-  },
-  emptyText: {
-    fontSize: 14,
-    color: '#72767d',
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  fullVideoLayout: {
-    flex: 1,
-    minHeight: 420,
-    width: '100%',
-    borderRadius: 14,
-    overflow: 'hidden',
-  },
-  localPipOverlay: {
-    position: 'absolute',
-    right: 12,
-    bottom: 12,
-    width: 140,
-    zIndex: 12,
-  },
-  remoteStrip: {
-    position: 'absolute',
-    right: 12,
-    top: 12,
-    width: 100,
-    gap: 8,
-    zIndex: 11,
-  },
-  cardTouchable: {
-    width: '48%',
-  },
-  cardTouchableFeatured: {
-    width: '100%',
-    flex: 1,
-  },
-  cardTouchablePip: {
-    width: '100%',
-  },
-  cardTouchableStrip: {
-    width: '100%',
-  },
-  card: {
-    width: '100%',
-    aspectRatio: 1,
-    borderRadius: 8,
-    backgroundColor: '#2c2f33',
-    overflow: 'hidden',
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  cardSpeaking: {
-    borderColor: '#3BA55C',
-  },
-  cardFeatured: {
-    height: '100%',
-    aspectRatio: undefined,
-    borderRadius: 14,
-  },
-  cardPip: {
-    aspectRatio: 3 / 4,
-    borderRadius: 12,
-    borderColor: 'rgba(255,255,255,0.35)',
-  },
-  cardStrip: {
-    aspectRatio: 3 / 4,
-  },
-  videoCardContainer: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
-  videoViewFull: {
-    flex: 1,
-  },
-  avatarModeContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarText: {
-    fontSize: 32,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  nameTagOverlay: {
-    position: 'absolute',
-    bottom: 8,
-    left: 8,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-  },
-  nameTagText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  pinBadgeOverlay: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-  },
-  statusBadgesOverlay: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    gap: 6,
-    zIndex: 30,
-    elevation: 8,
-  },
-  statusBadgesOverlayFeatured: {
-    top: undefined,
-    right: undefined,
-    left: 8,
-    bottom: 40,
-    flexDirection: 'row',
-  },
-  statusBadgeCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(237, 66, 69, 0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  inviteBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    backgroundColor: '#2c2f33',
-    marginHorizontal: 12,
-    marginBottom: 12,
-    borderRadius: 8,
-    gap: 12,
-  },
-  inviteIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#23272a',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  inviteText: {
-    flex: 1,
-  },
-  inviteTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  inviteSub: {
-    fontSize: 12,
-    color: '#72767d',
-    marginTop: 2,
-  },
-  controls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    backgroundColor: '#2c2f33',
-    borderTopWidth: 1,
-    borderTopColor: '#202225',
-    gap: 12,
-  },
-  controlBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#40444b',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  controlBtnActive: {
-    backgroundColor: '#ED4245',
-  },
-  leaveBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#ED4245',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-});

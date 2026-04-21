@@ -1,0 +1,366 @@
+import { StyleSheet } from 'react-native';
+
+export const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: '#23272a',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#2c2f33',
+    borderBottomWidth: 1,
+    borderBottomColor: '#202225',
+    gap: 8,
+  },
+  headerBtn: {
+    padding: 8,
+  },
+  headerCenter: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  headerChannel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  statusText: {
+    fontSize: 12,
+    color: '#72767d',
+  },
+  memberCountText: {
+    fontSize: 11,
+    color: '#b9bbbe',
+    marginTop: 4,
+  },
+  participantArea: {
+    flex: 1,
+    backgroundColor: '#23272a',
+  },
+  participantContent: {
+    padding: 12,
+    flexGrow: 1,
+  },
+  participantContentVideo: {
+    padding: 8,
+    flexGrow: 1,
+  },
+  viewModeBar: {
+    flexDirection: 'row',
+    alignSelf: 'center',
+    backgroundColor: 'rgba(32, 34, 37, 0.86)',
+    borderRadius: 999,
+    padding: 4,
+    gap: 4,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  viewModeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  viewModeBtnActive: {
+    backgroundColor: '#5865f2',
+  },
+  viewModeBtnText: {
+    fontSize: 12,
+    color: '#b9bbbe',
+    fontWeight: '600',
+  },
+  viewModeBtnTextActive: {
+    color: '#fff',
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: '#72767d',
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  fullVideoLayout: {
+    flex: 1,
+    minHeight: 420,
+    width: '100%',
+  },
+  spotlightCardShell: {
+    flex: 1,
+    borderRadius: 14,
+    overflow: 'visible',
+  },
+  spotlightSpeakingRing: {
+    position: 'absolute',
+    top: -1,
+    left: -1,
+    right: -1,
+    bottom: -1,
+    borderRadius: 15,
+    borderWidth: 2,
+    borderColor: '#3BA55C',
+    zIndex: 50,
+    elevation: 20,
+  },
+  localPipOverlay: {
+    position: 'absolute',
+    right: 12,
+    bottom: 12,
+    width: 140,
+    zIndex: 12,
+  },
+  remoteStrip: {
+    position: 'absolute',
+    right: 12,
+    top: 12,
+    width: 100,
+    gap: 8,
+    zIndex: 11,
+  },
+  cardTouchable: {
+    width: '48%',
+  },
+  cardTouchableFeatured: {
+    width: '100%',
+    flex: 1,
+  },
+  cardTouchablePip: {
+    width: '100%',
+  },
+  cardTouchableStrip: {
+    width: '100%',
+  },
+  cardTouchableScreenShare: {
+    width: '100%',
+  },
+  card: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: 8,
+    backgroundColor: '#2c2f33',
+    padding: 2,
+  },
+  cardInner: {
+    flex: 1,
+    borderRadius: 6,
+    overflow: 'hidden',
+    backgroundColor: '#2c2f33',
+  },
+  cardSpeaking: {
+    backgroundColor: '#3BA55C',
+  },
+  cardFeatured: {
+    height: '100%',
+    aspectRatio: undefined,
+    borderRadius: 14,
+  },
+  cardInnerFeatured: {
+    borderRadius: 12,
+  },
+  cardSpotlightShare: {
+    height: '100%',
+    aspectRatio: undefined,
+    borderRadius: 14,
+    backgroundColor: '#000',
+  },
+  cardInnerSpotlightShare: {
+    borderRadius: 12,
+    backgroundColor: '#000',
+  },
+  cardPip: {
+    aspectRatio: 3 / 4,
+    borderRadius: 12,
+    borderColor: 'rgba(255,255,255,0.35)',
+  },
+  cardInnerPip: {
+    borderRadius: 10,
+  },
+  cardStrip: {
+    aspectRatio: 3 / 4,
+  },
+  cardScreenShare: {
+    aspectRatio: 16 / 9,
+  },
+  videoCardContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  videoCardContainerSpotlightShare: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  videoContentFrame: {
+    flex: 1,
+  },
+  videoContentFrameSpotlightShare: {
+    maxWidth: '100%',
+    maxHeight: '100%',
+    alignSelf: 'center',
+  },
+  videoViewFull: {
+    flex: 1,
+  },
+  avatarModeContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarText: {
+    fontSize: 32,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  nameTagOverlay: {
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  nameTagText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  pinBadgeOverlay: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+  },
+  statusBadgesOverlay: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    gap: 6,
+    zIndex: 30,
+    elevation: 8,
+  },
+  statusBadgesOverlayWithFlip: {
+    top: 44,
+  },
+  statusBadgesOverlayFeatured: {
+    top: undefined,
+    right: undefined,
+    left: 8,
+    bottom: 40,
+    flexDirection: 'row',
+  },
+  flipCameraOverlay: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(32, 34, 37, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 32,
+    elevation: 9,
+  },
+  statusBadgeCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(237, 66, 69, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  inviteBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: '#2c2f33',
+    marginHorizontal: 12,
+    marginBottom: 12,
+    borderRadius: 8,
+    gap: 12,
+  },
+  inviteIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#23272a',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  inviteText: {
+    flex: 1,
+  },
+  inviteTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  inviteSub: {
+    fontSize: 12,
+    color: '#72767d',
+    marginTop: 2,
+  },
+  controls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    backgroundColor: '#2c2f33',
+    borderTopWidth: 1,
+    borderTopColor: '#202225',
+    gap: 12,
+  },
+  controlBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#40444b',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  controlBtnActive: {
+    backgroundColor: '#ED4245',
+  },
+  leaveBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#ED4245',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+});
+
+export default styles;
