@@ -236,120 +236,112 @@
 ### Người phụ trách 1 (Dev 1): **User & Server Administration**
 
 #### 11. Admin Authentication
-- [ ] **Admin Login Screen**
+- [x] **Admin Login Screen**
   - Separate admin login page
   - JWT token riêng cho admin
   - Role-based access: `ROLE_ADMIN`
 
-- [ ] **Admin Dashboard**
+- [x] **Admin Dashboard**
   - Thống kê tổng quan: users, servers, messages, active users
   - Quick actions
 
 #### 12. User Management (Admin)
-- [ ] **User List Screen**
+- [x] **User List Screen**
   - Bảng: username, email, status, created date, last active
   - Phân trang, sort, filter
   - Search user
-  - API: Cần tạo `GET /api/admin/users`
+  - API: `GET /api/admin/users`
 
-- [ ] **User Detail/Edit Screen**
+- [x] **User Detail/Edit Screen**
   - Xem chi tiết thông tin user
   - Disable/Enable account
   - Reset password
   - View user's servers, messages
   - Ban user (xóa quyền truy cập)
-  - API: Cần tạo `GET /api/admin/users/{id}`, `PUT /api/admin/users/{id}`
+  - API: `GET /api/admin/users/{id}`, `PUT /api/admin/users/{id}`
 
-- [ ] **User Statistics**
+- [x] **User Statistics**
   - Số messages đã gửi
   - Số servers tham gia
   - Số friends
   - Activity timeline
 
 #### 13. Server Management (Admin)
-- [ ] **Server List Screen**
+- [x] **Server List Screen**
   - Bảng: tên, owner, số members, ngày tạo
   - Filter: all, active, inactive
   - Search server
-  - API: Cần tạo `GET /api/admin/servers`
+  - API: `GET /api/admin/servers`
 
-- [ ] **Server Detail Screen**
+- [x] **Server Detail Screen**
   - Thông tin chi tiết server
   - Danh sách channels
   - Danh sách members
   - Xem messages
-  - API: Cần tạo `GET /api/admin/servers/{id}`
+  - API: `GET /api/admin/servers/{id}`
 
-- [ ] **Server Actions**
+- [x] **Server Actions**
   - Force delete server
   - View server logs
   - Warn owner
-  - API: Cần tạo `DELETE /api/admin/servers/{id}`
+  - API: `DELETE /api/admin/servers/{id}`
 
 ---
 
 ### Người phụ trách 2 (Dev 2): **Content & Analytics Administration**
 
 #### 14. Content Moderation
-- [ ] **Reported Messages Screen**
+- [x] **Reported Messages Screen**
   - Danh sách messages bị report
   - Xem nội dung, context
   - Actions: delete message, warn user, ban user
-  - API: Cần tạo bảng `reports` và endpoints
+  - API: Bảng `reported_messages` + endpoints
 
-- [ ] **Auto-moderation Settings**
-  - Block words/phrases
-  - Spam detection threshold
-  - Link restrictions
-  - Attachment restrictions
+- [x] **Auto-moderation Settings**
+  - Block words/phrases (Blacklist management)
+  - Add/Remove keywords
 
-- [ ] **Audit Log**
+- [x] **Audit Log**
   - Log các hành động admin
   - Ai đã làm gì, khi nào
-  - Filter theo action type, admin, date
+  - Filter theo action type, admin, targetType
 
 #### 15. Analytics Dashboard
-- [ ] **Overview Dashboard**
+- [x] **Overview Dashboard**
   - Total users (registered, active)
   - Total servers
   - Total messages
   - Daily/Weekly/Monthly active users
-  - Growth charts
-  - API: Cần tạo `GET /api/admin/stats/overview`
+  - Growth charts (fl_chart LineChart)
+  - API: `GET /api/admin/stats/overview`, `GET /api/admin/stats/user-growth`, `GET /api/admin/stats/top-servers`
 
-- [ ] **User Analytics**
+- [x] **User Analytics**
   - New users over time
-  - User retention
-  - Geographic distribution
-  - Age demographics
+  - User growth line chart
 
-- [ ] **Server Analytics**
+- [x] **Server Analytics**
   - Top servers by members
-  - Active servers vs inactive
-  - Server creation trends
+  - Server list with member/channel counts
 
-- [ ] **Engagement Analytics**
-  - Messages per day
-  - Average messages per user
-  - Peak hours
-  - Voice usage statistics
+- [x] **Engagement Analytics**
+  - Messages per day (overview stats)
+  - Revenue tracking
 
 #### 16. Payment Management (Admin)
-- [ ] **Nitro Orders List**
+- [x] **Nitro Orders List**
   - Bảng: user, amount, status, date
-  - Filter: pending, completed, failed
-  - API: `GET /api/payment/admin/orders`
+  - Filter chips: All/Pending/Confirmed/Failed
+  - API: `GET /api/admin/payment/orders`
 
-- [ ] **Order Detail**
+- [x] **Order Detail**
   - Chi tiết giao dịch
-  - Verify payment status
-  - Manual approve/reject
-  - API: `GET /api/payment/admin/orders/{txnRef}`
+  - Approve/Reject buttons cho PENDING orders
+  - API: `GET /api/admin/payment/orders/{txnRef}`
 
-- [ ] **Revenue Report**
-  - Tổng doanh thu
-  - Revenue by period
-  - Export report
+- [x] **Revenue Report**
+  - Tổng doanh thu, số đơn, tỉ lệ thành công
+  - Revenue stats cards
+  - API: `GET /api/admin/payment/stats`
 
 ---
 

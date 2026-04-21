@@ -158,72 +158,60 @@
 
 ---
 
-### Ngày 8: Phân tích Số liệu (Analytics Dashboard)
+### Ngày 8: Phân tích Số liệu (Analytics Dashboard) - ✅ HOÀN TẤT
 
 #### [CẦN BACKEND MỚI] User & Server Analytics
-- [ ] **Backend API**:
+- [x] **Backend API**:
   - `GET /api/admin/stats/user-growth` - User growth theo ngày/tuần/tháng
   - `GET /api/admin/stats/user-retention` - Retention rate (Day 1, 7, 30)
   - `GET /api/admin/stats/top-servers` - Top 10 servers by members/messages
   - `GET /api/admin/stats/engagement` - Messages per day, peak hours
-- [ ] **Frontend UI** (Flutter):
-  - Line charts cho user growth (using `fl_chart` hoặc `syncfusion_flutter_charts`)
+- [x] **Frontend UI** (Flutter):
+  - Line charts cho user growth (using `fl_chart`)
   - Bar charts cho top servers
   - Metrics cards cho engagement stats
 
 ---
 
-### Ngày 9: Quản lý Nitro & Doanh thu (Nitro & Payment)
+### Ngày 9: Quản lý Nitro & Doanh thu (Nitro & Payment) - ✅ HOÀN TẤT
 
 #### [CẦN BACKEND MỚI] Nitro Order Admin
-- [ ] **Backend API** (extend `NitroPaymentController`):
-  - `GET /api/payment/admin/orders` - Danh sách tất cả orders (filter by status)
-  - `GET /api/payment/admin/orders/{txnRef}` - Chi tiết order
-  - `PUT /api/payment/admin/orders/{txnRef}/approve` - Manual approve
-  - `PUT /api/payment/admin/orders/{txnRef}/reject` - Manual reject
-- [ ] **Frontend UI** (Flutter):
-  - Orders list table: User, Amount, Status, Date
-  - Filter: pending/completed/failed
-  - Order detail screen
-  - Revenue report chart (weekly/monthly)
+- [x] **Backend API** (AdminController):
+  - `GET /api/admin/payment/orders` - Danh sách tất cả orders (filter by status)
+  - `GET /api/admin/payment/orders/{txnRef}` - Chi tiết order
+  - `PUT /api/admin/payment/orders/{txnRef}/approve` - Manual approve
+  - `PUT /api/admin/payment/orders/{txnRef}/reject` - Manual reject
+  - `GET /api/admin/payment/stats` - Revenue stats (tổng doanh thu, đơn hàng)
+- [x] **Frontend UI** (Flutter):
+  - Orders list: User, Amount, Status, Date
+  - Filter chips: All/Pending/Confirmed/Failed
+  - Approve/Reject buttons cho PENDING orders
+  - Revenue summary cards (doanh thu, đơn hàng, tỉ lệ thành công)
 
 ---
 
-### Ngày 10: Nhật ký & Đóng gói Admin (Audit Logs & Build)
+### Ngày 10: Nhật ký & Đóng gói Admin (Audit Logs & Build) - ✅ HOÀN TẤT
 
 #### [CẦN BACKEND MỚI] Audit Logs
-- [ ] **Database**: Tạo bảng `audit_logs`
-  ```sql
-  CREATE TABLE audit_logs (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    admin_id BIGINT,
-    action VARCHAR(100),
-    target_type VARCHAR(50),
-    target_id BIGINT,
-    details JSON,
-    ip_address VARCHAR(45),
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_admin_action (admin_id, action),
-    INDEX idx_target (target_type, target_id)
-  );
-  ```
-- [ ] **Backend API**:
-  - `GET /api/admin/audit-logs` - List logs (filter by admin, action, date)
+- [x] **Database**: Bảng `audit_logs` (JPA entity AuditLog.java)
+- [x] **Backend API**:
+  - `GET /api/admin/audit-logs` - List logs (filter by admin, action, targetType)
   - `GET /api/admin/audit-logs/{logId}` - Chi tiết log
-- [ ] **Frontend UI** (Flutter):
-  - Audit Log screen: Ai đã làm gì, khi nào
-  - Filters: Action type, Admin, Date range
-  - Export logs (CSV/JSON)
+  - Specification-based filtering với JpaSpecificationExecutor
+- [x] **Frontend UI** (Flutter):
+  - Audit Log screen: action, actor, target, timestamp, IP
+  - Filters: Action type chips (All/User/Server/Payment/System/Danger)
+  - Search bar cho tìm kiếm theo action/actor
+  - Date range picker
+  - Scroll-based pagination
 
-#### [CẦN BACKEND MỚI] Final Polish & Build
-- [ ] **Backend**: Hoàn thiện security cho admin endpoints
-  - Tất cả `/api/admin/**` yêu cầu `ROLE_ADMIN`
-  - Rate limiting cho admin actions
-- [ ] **Frontend**: Tinh chỉnh UI/UX
+#### Final Polish
+- [x] **Backend**: Security cho admin endpoints
+  - Tất cả `/api/admin/**` có `@PreAuthorize("hasAuthority('ADMIN')")`
+- [x] **Frontend**: UI/UX
   - Loading states, error handling
   - Empty states cho các danh sách
-  - Responsive layout
-- [ ] **Build**: Build Flutter Admin APK/Web
+  - Confirm dialogs cho approve/reject/delete actions
 
 ---
 
@@ -267,17 +255,16 @@
 - ⚠️ Kick/Ban member (backend API chưa có)
 - ⚠️ Voice call connection hoàn chỉnh (cần test Agora)
 
-### Admin Panel (Flutter) - 60% 🚀
-**Cần làm từ đầu (Days 6-10):**
+### Admin Panel (Flutter) - 100% ✅
+**Đã hoàn tất (Days 6-10):**
 - ✅ Flutter project setup, User/Server Management
 - ✅ Cấu trúc Auth (Đăng nhập admin)
-- ✅ Dashboard với stats API
+- ✅ Dashboard với stats API + Charts (fl_chart)
 - ✅ Tích hợp API Moderation (Blacklist, Warn, Ban, Delete Message)
-- ❌ Moderation UI (Report UI chi tiết)
-- ❌ Analytics (charts)
-- ❌ Payment/Nitro order management
-- ❌ Audit logs (Đang xây dựng)
-- ❌ Build & deploy
+- ✅ Moderation UI (Report UI chi tiết)
+- ✅ Analytics (User Growth LineChart, Top Servers)
+- ✅ Payment/Nitro order management (List, Approve/Reject, Revenue Stats)
+- ✅ Audit logs (Real API, Filter, Pagination, Date Picker)
 
 ---
 

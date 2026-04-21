@@ -157,4 +157,71 @@ class AdminApiService {
     final token = await _getToken();
     await _apiClient.delete('/admin/moderation/blacklist/$blacklistId', bearerToken: token);
   }
+
+  // ===== NITRO PAYMENT ADMIN =====
+
+  Future<Map<String, dynamic>> getNitroOrders({
+    String? status,
+    String? search,
+    int page = 0,
+    int size = 20,
+  }) async {
+    final token = await _getToken();
+    final queryParams = <String, String>{
+      'page': page.toString(),
+      'size': size.toString(),
+      'sort': 'createdAt,desc',
+    };
+    if (status != null && status.isNotEmpty) queryParams['status'] = status;
+    if (search != null && search.isNotEmpty) queryParams['search'] = search;
+
+    return await _apiClient.get('/admin/payment/orders', bearerToken: token, queryParameters: queryParams);
+  }
+
+  Future<Map<String, dynamic>> getNitroOrderDetail(String txnRef) async {
+    final token = await _getToken();
+    return await _apiClient.get('/admin/payment/orders/$txnRef', bearerToken: token);
+  }
+
+  Future<void> approveOrder(String txnRef) async {
+    final token = await _getToken();
+    await _apiClient.put('/admin/payment/orders/$txnRef/approve', {}, bearerToken: token);
+  }
+
+  Future<void> rejectOrder(String txnRef) async {
+    final token = await _getToken();
+    await _apiClient.put('/admin/payment/orders/$txnRef/reject', {}, bearerToken: token);
+  }
+
+  Future<Map<String, dynamic>> getRevenueStats() async {
+    final token = await _getToken();
+    return await _apiClient.get('/admin/payment/stats', bearerToken: token);
+  }
+
+  // ===== AUDIT LOGS =====
+
+  Future<Map<String, dynamic>> getAuditLogs({
+    String? action,
+    int? adminId,
+    String? targetType,
+    int page = 0,
+    int size = 20,
+  }) async {
+    final token = await _getToken();
+    final queryParams = <String, String>{
+      'page': page.toString(),
+      'size': size.toString(),
+      'sort': 'createdAt,desc',
+    };
+    if (action != null && action.isNotEmpty) queryParams['action'] = action;
+    if (adminId != null) queryParams['adminId'] = adminId.toString();
+    if (targetType != null && targetType.isNotEmpty) queryParams['targetType'] = targetType;
+
+    return await _apiClient.get('/admin/audit-logs', bearerToken: token, queryParameters: queryParams);
+  }
+
+  Future<Map<String, dynamic>> getAuditLogDetail(int logId) async {
+    final token = await _getToken();
+    return await _apiClient.get('/admin/audit-logs/$logId', bearerToken: token);
+  }
 }
