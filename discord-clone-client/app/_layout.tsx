@@ -75,7 +75,7 @@ export default function RootLayout() {
           }
         });
       } catch (error) {
-        console.error('Error subscribing to presence:', error);
+        console.warn('Presence subscription warning:', error);
       }
     };
 
@@ -142,7 +142,7 @@ export default function RootLayout() {
           }
         });
       } catch (error) {
-        console.error('Error subscribing to incoming calls:', error);
+        console.warn('Incoming call subscription warning:', error);
       }
     };
 

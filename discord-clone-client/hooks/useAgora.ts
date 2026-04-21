@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, PermissionsAndroid, Alert } from 'react-native';
 import { agoraService } from '@/services/agoraService';
-import { useDMCallStore } from '@/store/useDMCallStore';
 
 export interface AgoraUser {
   uid: string | number;
@@ -110,16 +109,16 @@ export function useAgora(conversationId: string, currentUserId: string) {
       });
     });
 
-    agoraService.onLocalVideo((track) => {
+    agoraService.onLocalVideo((uid) => {
       console.log('[useAgora] Local video track ready');
-      setLocalVideoTrack(track);
+      setLocalVideoTrack(uid);
     });
 
-    agoraService.onRemoteVideo((uid, track) => {
-      console.log('[useAgora] Remote video track ready:', uid);
+    agoraService.onRemoteVideo((uid) => {
+      console.log('[useAgora] Remote video stream ready:', uid);
       setRemoteVideoTracks((prev) => {
         const newMap = new Map(prev);
-        newMap.set(uid, track);
+        newMap.set(uid, true);
         return newMap;
       });
     });
@@ -135,11 +134,12 @@ export function useAgora(conversationId: string, currentUserId: string) {
 
     agoraService.onConnectionStateChanged((state) => {
       console.log('[useAgora] Connection state:', state);
-      setConnectionState(state);
-      if (state === 'CONNECTED') {
+      const stateStr = String(state);
+      setConnectionState(stateStr);
+      if (stateStr === '3') {
         setIsJoined(true);
         setIsConnecting(false);
-      } else if (state === 'DISCONNECTED') {
+      } else if (stateStr === '1' || stateStr === '5') {
         setIsJoined(false);
         setIsConnecting(false);
       }
@@ -184,8 +184,7 @@ export function useAgora(conversationId: string, currentUserId: string) {
 
       console.log('[useAgora] Joining channel...', { appId, channelName, uid });
 
-      // Create client and join
-      await agoraService.createClient();
+      // Join will initialize engine internally with appId when needed
       await agoraService.joinChannel(appId, channelName, token, uid);
       
       // Start local tracks

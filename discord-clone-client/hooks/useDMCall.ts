@@ -30,23 +30,31 @@ export function useDMCall(conversationId: string, currentUserId: string) {
   } = useDMCallStore();
 
   const agoraJoinedRef = useRef(false);
+  const agoraJoiningRef = useRef(false);
+  const lastAcceptedEventKeyRef = useRef<string | null>(null);
 
   // ── Join Agora Channel ────────────────────────────────────────
   const joinAgoraChannel = useCallback(async () => {
-    if (!agoraToken || !agoraAppId || !agoraChannelName || agoraJoinedRef.current) {
+    if (
+      agoraToken === null ||
+      !agoraAppId ||
+      !agoraChannelName ||
+      agoraJoinedRef.current ||
+      agoraJoiningRef.current
+    ) {
       return;
     }
 
     const enableVideo = activeCall?.callType === 'VIDEO';
     
     try {
+      agoraJoiningRef.current = true;
       console.log('[useDMCall] Joining Agora channel...', { 
         appId: agoraAppId, 
         channel: agoraChannelName,
         enableVideo 
       });
-      
-      await agoraService.createClient();
+
       await agoraService.joinChannel(agoraAppId, agoraChannelName, agoraToken, currentUserId);
       await agoraService.startLocalTracks(enableVideo);
       
@@ -55,11 +63,15 @@ export function useDMCall(conversationId: string, currentUserId: string) {
     } catch (error) {
       console.error('[useDMCall] Failed to join Agora channel:', error);
       agoraJoinedRef.current = false;
+    } finally {
+      agoraJoiningRef.current = false;
     }
   }, [agoraToken, agoraAppId, agoraChannelName, activeCall?.callType, currentUserId]);
 
   // ── Leave Agora Channel ───────────────────────────────────────
   const leaveAgoraChannel = useCallback(async () => {
+    agoraJoiningRef.current = false;
+
     if (agoraJoinedRef.current) {
       try {
         console.log('[useDMCall] Leaving Agora channel...');
@@ -74,7 +86,7 @@ export function useDMCall(conversationId: string, currentUserId: string) {
 
   // ── Auto-join Agora when call is accepted ───────────────────
   useEffect(() => {
-    if (activeCall?.status === 'ACCEPTED' && agoraToken && agoraAppId && agoraChannelName && !agoraJoinedRef.current) {
+    if (activeCall?.status === 'ACCEPTED' && agoraToken !== null && agoraAppId && agoraChannelName && !agoraJoinedRef.current) {
       console.log('[useDMCall] Call accepted, auto-joining Agora...');
       joinAgoraChannel();
     }
@@ -111,15 +123,35 @@ export function useDMCall(conversationId: string, currentUserId: string) {
             break;
 
           case 'CALL_ACCEPTED':
+            // Bỏ qua event CALL_ACCEPTED trùng để tránh fetch token + join Agora nhiều lần.
+            {
+              const eventKey = [
+                message.type,
+                message.callState?.callId ?? '',
+                message.callState?.status ?? '',
+                message.callState?.startedAt ?? '',
+              ].join(':');
+
+              if (eventKey === lastAcceptedEventKeyRef.current) {
+                console.log('[useDMCall] Ignored duplicate CALL_ACCEPTED event');
+                break;
+              }
+
+              lastAcceptedEventKeyRef.current = eventKey;
+            }
+
             // Cuộc gọi được chấp nhận - cập nhật state + lấy token
             updateCallState(message.callState);
-            fetchAgoraToken(conversationId, currentUserId);
+            if (!useDMCallStore.getState().agoraChannelName || !useDMCallStore.getState().agoraAppId) {
+              fetchAgoraToken(conversationId, currentUserId);
+            }
             setRinging(false);
             break;
 
           case 'CALL_DECLINED':
           case 'CALL_ENDED':
           case 'CALL_MISSED':
+            lastAcceptedEventKeyRef.current = null;
             updateCallState(message.callState);
             setRinging(false);
             // Leave Agora channel
@@ -162,6 +194,7 @@ export function useDMCall(conversationId: string, currentUserId: string) {
 
   // ── Từ chối cuộc gọi ────────────────────────────────────
   const handleDeclineCall = useCallback(async () => {
+    lastAcceptedEventKeyRef.current = null;
     const success = await declineCall(conversationId, currentUserId);
     setRinging(false);
     clearCall();
@@ -172,6 +205,7 @@ export function useDMCall(conversationId: string, currentUserId: string) {
   const handleEndCall = useCallback(async () => {
     // Leave Agora first
     await leaveAgoraChannel();
+    lastAcceptedEventKeyRef.current = null;
     const success = await endCall(conversationId, currentUserId);
     setRinging(false);
     clearCall();
@@ -319,6 +353,7 @@ export function useDMCall(conversationId: string, currentUserId: string) {
              const currentCall = useDMCallStore.getState().activeCall;
              if (currentCall) {
                console.log('[useDMCall] Fallback detected no active call, clearing local state');
+               lastAcceptedEventKeyRef.current = null;
                setRinging(false);
                leaveAgoraChannel();
                clearCall();
@@ -335,6 +370,8 @@ export function useDMCall(conversationId: string, currentUserId: string) {
   // ── Cleanup on unmount ────────────────────────────────────────
   useEffect(() => {
     return () => {
+      lastAcceptedEventKeyRef.current = null;
+
       if (agoraJoinedRef.current) {
         leaveAgoraChannel();
       }

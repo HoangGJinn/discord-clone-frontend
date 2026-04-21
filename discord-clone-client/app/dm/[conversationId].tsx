@@ -90,6 +90,7 @@ export default function DMChatScreen() {
   // ── Day 5: Voice/Video Call State ────────────────────────
   const [voiceCallVisible, setVoiceCallVisible] = useState(false);
   const [callType, setCallType] = useState<'VOICE' | 'VIDEO'>('VOICE');
+  const [shouldAutoStartCall, setShouldAutoStartCall] = useState(false);
 
   // ── Find the other participant from conversations list ─
   const conversation = conversations.find((c) => c.id === conversationId);
@@ -106,6 +107,8 @@ export default function DMChatScreen() {
         setVoiceCallVisible(true);
         // Sync call type if it's already active
         setCallType(activeCall.callType);
+        // Modal opened from store/incoming flow -> không tự start call
+        setShouldAutoStartCall(false);
       }
     }
   }, [activeCall, conversationId, voiceCallVisible]);
@@ -119,6 +122,7 @@ export default function DMChatScreen() {
   const handleLeaveCall = useCallback(() => {
     console.log('[Call] Leaving call');
     setVoiceCallVisible(false);
+    setShouldAutoStartCall(false);
   }, []);
 
   const handleMinimizeCall = useCallback(() => {
@@ -128,12 +132,14 @@ export default function DMChatScreen() {
 
   const handleStartCall = useCallback(() => {
     setCallType('VOICE');
+    setShouldAutoStartCall(true);
     setVoiceCallVisible(true);
     console.log('[VoiceCall] Starting voice call with:', otherUser?.username);
   }, [otherUser]);
 
   const handleStartVideoCall = useCallback(() => {
     setCallType('VIDEO');
+    setShouldAutoStartCall(true);
     setVoiceCallVisible(true);
     console.log('[VideoCall] Starting video call with:', otherUser?.username);
   }, [otherUser]);
@@ -604,6 +610,7 @@ export default function DMChatScreen() {
       {/* Voice/Video Call UI */}
       <VoiceCallUI
         visible={voiceCallVisible}
+        autoStart={shouldAutoStartCall}
         conversationId={conversationId || ''}
         callType={callType}
         remoteUserName={otherUser?.displayName || otherUser?.username || 'Unknown'}
@@ -615,6 +622,7 @@ export default function DMChatScreen() {
         onSendMessage={handleSendMessageInCall}
         onLeave={handleLeaveCall}
         onMinimize={handleMinimizeCall}
+        onAutoStartHandled={() => setShouldAutoStartCall(false)}
       />
     </SafeAreaView>
   );

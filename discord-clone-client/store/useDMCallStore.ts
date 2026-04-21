@@ -72,9 +72,9 @@ export const useDMCallStore = create<DMCallStore>((set, get) => ({
 
         set({
           activeCall: callState,
-          agoraToken: tokenData?.token || null,
-          agoraAppId: tokenData?.appId || null,
-          agoraChannelName: tokenData?.channelName || null,
+          agoraToken: tokenData?.token ?? null,
+          agoraAppId: tokenData?.appId ?? null,
+          agoraChannelName: tokenData?.channelName ?? null,
           isConnecting: false,
           isRinging: false
         });

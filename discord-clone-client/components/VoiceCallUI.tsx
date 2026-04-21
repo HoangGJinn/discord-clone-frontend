@@ -36,6 +36,7 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 interface VoiceCallUIProps {
   visible: boolean;
+  autoStart?: boolean;
   conversationId: string;
   callType?: 'VOICE' | 'VIDEO';
   remoteUserName?: string;
@@ -47,6 +48,7 @@ interface VoiceCallUIProps {
   onSendMessage?: () => void;
   onLeave?: () => void;
   onMinimize?: () => void;
+  onAutoStartHandled?: () => void;
 }
 
 function formatDuration(seconds: number): string {
@@ -207,6 +209,7 @@ function VideoPlaceholder({ label }: { label: string }) {
 // ── Main VoiceCallUI Component ───────────────────────────────
 function VoiceCallUIInner({
   visible,
+  autoStart = false,
   conversationId,
   callType: propCallType = 'VOICE',
   remoteUserName = 'Unknown',
@@ -218,6 +221,7 @@ function VoiceCallUIInner({
   onSendMessage,
   onLeave,
   onMinimize,
+  onAutoStartHandled,
 }: VoiceCallUIProps) {
   const currentUser = useAuthStore((s) => s.user);
   const currentUserId = currentUser?.id?.toString() || '0';
@@ -257,10 +261,12 @@ function VoiceCallUIInner({
 
   // ── Auto-start call khi modal mở (nếu chưa có cuộc gọi) ──
   useEffect(() => {
-    if (visible && !activeCall && !isConnecting && !isRinging && !hasStartedCallRef.current) {
+    if (visible && autoStart && !activeCall && !isConnecting && !isRinging && !hasStartedCallRef.current) {
       hasStartedCallRef.current = true;
       console.log(`[VoiceCallUI] Auto-starting ${propCallType} call...`);
-      handleStartCall(propCallType);
+      handleStartCall(propCallType).finally(() => {
+        onAutoStartHandled?.();
+      });
       // Default camera ON for video calls
       if (propCallType === 'VIDEO') {
         setIsCameraOn(true);
@@ -270,7 +276,7 @@ function VoiceCallUIInner({
     if (!visible) {
       hasStartedCallRef.current = false;
     }
-  }, [visible, activeCall, isConnecting, isRinging, propCallType]);
+  }, [visible, autoStart, activeCall, isConnecting, isRinging, propCallType, handleStartCall, onAutoStartHandled]);
 
   // ── Timer ────────────────────────────────────────────────
   useEffect(() => {

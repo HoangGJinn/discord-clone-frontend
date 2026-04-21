@@ -1,93 +1,116 @@
-import AgoraRTC, {
-  IAgoraRTCClient,
-  ILocalAudioTrack,
-  ILocalVideoTrack,
-  IRemoteVideoTrack,
-  IRemoteAudioTrack,
-  UID,
-  ChannelMediaOptions,
-} from 'agora-rtc-sdk-ng';
+import {
+  ChannelProfileType,
+  ClientRoleType,
+  createAgoraRtcEngine,
+  IRtcEngine,
+} from 'react-native-agora';
+
+type UID = number | string;
 
 /**
  * Agora Service - Quản lý kết nối RTC cho cuộc gọi voice/video
+ * React Native version using react-native-agora SDK
  */
 class AgoraService {
-  private client: IAgoraRTCClient | null = null;
-  private localAudioTrack: ILocalAudioTrack | null = null;
-  private localVideoTrack: ILocalVideoTrack | null = null;
-  private remoteVideoTracks: Map<UID, IRemoteVideoTrack> = new Map();
-  private remoteAudioTracks: Map<UID, IRemoteAudioTrack> = new Map();
+  private engine: IRtcEngine | null = null;
+  private initializedAppId: string | null = null;
+  private localVideoEnabled: boolean = false;
+  private localAudioEnabled: boolean = false;
+  private isInChannelFlag: boolean = false;
   
   // Callbacks
-  private onLocalVideoReady: ((track: ILocalVideoTrack) => void) | null = null;
-  private onRemoteVideoReady: ((uid: UID, track: IRemoteVideoTrack) => void) | null = null;
-  private onRemoteVideoRemoved: ((uid: UID) => void) | null = null;
-  private onRemoteAudioReady: ((uid: UID, track: IRemoteAudioTrack) => void) | null = null;
-  private onRemoteAudioRemoved: ((uid: UID) => void) | null = null;
-  private onUserJoined: ((uid: UID) => void) | null = null;
-  private onUserLeft: ((uid: UID) => void) | null = null;
-  private onError: ((error: Error) => void) | null = null;
-  private onConnectionStateChange: ((state: string) => void) | null = null;
+  private onLocalVideoReadyCallback: ((uid: UID) => void) | null = null;
+  private onRemoteVideoReadyCallback: ((uid: UID) => void) | null = null;
+  private onRemoteVideoRemovedCallback: ((uid: UID) => void) | null = null;
+  private onRemoteAudioReadyCallback: ((uid: UID) => void) | null = null;
+  private onRemoteAudioRemovedCallback: ((uid: UID) => void) | null = null;
+  private onUserJoinedCallback: ((uid: UID) => void) | null = null;
+  private onUserLeftCallback: ((uid: UID) => void) | null = null;
+  private onErrorCallback: ((error: Error) => void) | null = null;
+  private onConnectionStateChangeCallback: ((state: number) => void) | null = null;
 
   /**
-   * Khởi tạo Agora client
+   * Khởi tạo Agora engine
    */
-  async createClient(): Promise<IAgoraRTCClient> {
-    if (this.client) {
-      await this.leave();
+  async createClient(appId: string): Promise<IRtcEngine> {
+    if (!appId) {
+      throw new Error('Agora appId is required');
     }
-    
-    this.client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
-    
-    // Set up event listeners
-    this.setupEventListeners();
-    
-    return this.client;
+
+    if (this.engine && this.initializedAppId === appId) {
+      return this.engine;
+    }
+
+    if (this.engine) {
+      await this.leave();
+      this.engine.release();
+      this.engine = null;
+      this.initializedAppId = null;
+    }
+
+    try {
+      this.engine = createAgoraRtcEngine();
+      const initResult = this.engine.initialize({
+        appId,
+        channelProfile: ChannelProfileType.ChannelProfileCommunication,
+      });
+
+      if (initResult < 0) {
+        throw new Error(`Agora initialize failed with code ${initResult}`);
+      }
+
+      this.initializedAppId = appId;
+
+      // Set up event listeners
+      this.setupEventListeners();
+      
+      return this.engine;
+    } catch (error) {
+      console.error('[AgoraService] Failed to create engine:', error);
+      throw error;
+    }
   }
 
   /**
    * Thiết lập event listeners
    */
   private setupEventListeners(): void {
-    if (!this.client) return;
+    if (!this.engine) return;
 
-    this.client.on('user-joined', (user) => {
-      console.log('[AgoraService] User joined:', user.uid);
-      this.onUserJoined?.(user.uid);
+    // User joined
+    this.engine.addListener('onUserJoined', (connection, remoteUid) => {
+      console.log('[AgoraService] User joined:', remoteUid);
+      this.onUserJoinedCallback?.(remoteUid);
     });
 
-    this.client.on('user-left', (user, reason) => {
-      console.log('[AgoraService] User left:', user.uid, reason);
-      this.onRemoteVideoTracks.delete(user.uid);
-      this.remoteAudioTracks.delete(user.uid);
-      this.onRemoteVideoRemoved?.(user.uid);
-      this.onRemoteAudioRemoved?.(user.uid);
-      this.onUserLeft?.(user.uid);
+    // User left
+    this.engine.addListener('onUserOffline', (connection, remoteUid, reason) => {
+      console.log('[AgoraService] User left:', remoteUid, reason);
+      this.onRemoteVideoRemovedCallback?.(remoteUid);
+      this.onRemoteAudioRemovedCallback?.(remoteUid);
+      this.onUserLeftCallback?.(remoteUid);
     });
 
-    this.client.on('user-published', async (user, mediaType) => {
-      console.log('[AgoraService] User published:', user.uid, mediaType);
-      
-      // Subscribe to remote media
-      if (this.client) {
-        await this.client.subscribe(user, mediaType);
+    // Remote video state changed
+    this.engine.addListener('onRemoteVideoStateChanged', (connection, remoteUid, state, reason, elapsed) => {
+      console.log('[AgoraService] Remote video state changed:', remoteUid, state);
+      if (state === 1) { // REMOTE_VIDEO_STATE_DECODING = 1
+        this.onRemoteVideoReadyCallback?.(remoteUid);
+      } else if (state === 0) { // REMOTE_VIDEO_STATE_STOPPED = 0
+        this.onRemoteVideoRemovedCallback?.(remoteUid);
       }
     });
 
-    this.client.on('user-unpublished', (user, mediaType) => {
-      console.log('[AgoraService] User unpublished:', user.uid, mediaType);
-      if (mediaType === 'video') {
-        this.remoteVideoTracks.delete(user.uid);
-        this.onRemoteVideoRemoved?.(user.uid);
-      } else if (mediaType === 'audio') {
-        this.remoteAudioTracks.delete(user.uid);
-        this.onRemoteAudioRemoved?.(user.uid);
-      }
-    });
-
-    this.client.on('connection-state-change', (state, reason) => {
+    // Connection state changed
+    this.engine.addListener('onConnectionStateChanged', (connection, state, reason) => {
       console.log('[AgoraService] Connection state changed:', state, reason);
-      this.onConnectionStateChange?.(state);
+      this.onConnectionStateChangeCallback?.(state);
+    });
+
+    // Error
+    this.engine.addListener('onError', (errorCode) => {
+      console.error('[AgoraService] Error code:', errorCode);
+      this.onErrorCallback?.(new Error(`Agora error code: ${errorCode}`));
     });
   }
 
@@ -100,21 +123,49 @@ class AgoraService {
     token: string,
     uid: string | number
   ): Promise<number> {
-    if (!this.client) {
-      await this.createClient();
+    if (!this.engine || this.initializedAppId !== appId) {
+      await this.createClient(appId);
     }
 
-    if (!this.client) {
-      throw new Error('Failed to create Agora client');
+    if (!this.engine) {
+      throw new Error('Failed to create Agora engine');
     }
 
-    console.log('[AgoraService] Joining channel:', { appId, channelName, token, uid });
+    const numericUid = typeof uid === 'string' ? parseInt(uid, 10) : uid;
+    const normalizedToken = token && token.trim().length > 0 ? token : null;
+
+    console.log('[AgoraService] Joining channel:', {
+      appId,
+      channelName,
+      token: normalizedToken ? '[provided]' : '[none]',
+      uid: numericUid,
+    });
 
     try {
+      // Enable video if needed
+      await this.engine.enableVideo();
+      await this.engine.enableAudio();
+      
       // Join the channel
-      const joinedUid = await this.client.join(appId, channelName, token, uid);
-      console.log('[AgoraService] Joined channel with uid:', joinedUid);
-      return joinedUid;
+      const joinResult = this.engine.joinChannel(
+        normalizedToken,
+        channelName,
+        numericUid,
+        {
+          clientRoleType: ClientRoleType.ClientRoleBroadcaster,
+          publishMicrophoneTrack: true,
+          autoSubscribeVideo: true,
+          autoSubscribeAudio: true,
+        }
+      );
+
+      if (joinResult < 0) {
+        throw new Error(`Agora joinChannel failed with code ${joinResult}`);
+      }
+
+      this.isInChannelFlag = true;
+      console.log('[AgoraService] Joined channel with result:', joinResult);
+      return numericUid;
     } catch (error) {
       console.error('[AgoraService] Failed to join channel:', error);
       throw error;
@@ -125,37 +176,27 @@ class AgoraService {
    * Tạo và publish local tracks (audio + optional video)
    */
   async startLocalTracks(enableVideo: boolean = false): Promise<void> {
+    if (!this.engine) {
+      throw new Error('Engine not initialized');
+    }
+
     try {
-      // Create audio track
-      this.localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack({
-        AEC: true, // Acoustic Echo Cancellation
-        ANS: true, // Automatic Noise Suppression
-        AGC: true, // Automatic Gain Control
-      });
+      // Start local audio stream
+      await this.engine.enableLocalAudio(true);
+      this.localAudioEnabled = true;
+      console.log('[AgoraService] Audio track started');
 
-      // Publish audio track
-      if (this.client) {
-        await this.client.publish(this.localAudioTrack);
-        console.log('[AgoraService] Audio track published');
-      }
-
-      // Create video track if enabled
+      // Start local video stream if enabled
       if (enableVideo) {
-        this.localVideoTrack = await AgoraRTC.createCameraVideoTrack({
-          encoderConfig: '720p_1', // 720p, 15fps, 1130kbps
-          optimizationMode: 'motion',
-        });
-
-        if (this.client) {
-          await this.client.publish(this.localVideoTrack);
-          console.log('[AgoraService] Video track published');
-        }
-
-        this.onLocalVideoReady?.(this.localVideoTrack);
+        await this.engine.enableLocalVideo(true);
+        await this.engine.startPreview();
+        this.localVideoEnabled = true;
+        console.log('[AgoraService] Video track started');
+        this.onLocalVideoReadyCallback?.(0); // 0 for local user
       }
     } catch (error) {
       console.error('[AgoraService] Failed to start local tracks:', error);
-      this.onError?.(error as Error);
+      this.onErrorCallback?.(error as Error);
       throw error;
     }
   }
@@ -165,28 +206,26 @@ class AgoraService {
    */
   async leave(): Promise<void> {
     try {
-      // Stop and destroy local tracks
-      if (this.localAudioTrack) {
-        this.localAudioTrack.stop();
-        this.localAudioTrack.close();
-        this.localAudioTrack = null;
-      }
+      if (this.engine) {
+        // Stop preview
+        if (this.localVideoEnabled) {
+          await this.engine.stopPreview();
+          await this.engine.enableLocalVideo(false);
+        }
 
-      if (this.localVideoTrack) {
-        this.localVideoTrack.stop();
-        this.localVideoTrack.close();
-        this.localVideoTrack = null;
-      }
+        // Stop local audio
+        if (this.localAudioEnabled) {
+          await this.engine.enableLocalAudio(false);
+        }
 
-      // Leave channel
-      if (this.client) {
-        await this.client.leave();
+        // Leave channel
+        this.engine.leaveChannel();
         console.log('[AgoraService] Left channel');
       }
 
-      // Clear remote tracks
-      this.remoteVideoTracks.clear();
-      this.remoteAudioTracks.clear();
+      this.isInChannelFlag = false;
+      this.localVideoEnabled = false;
+      this.localAudioEnabled = false;
     } catch (error) {
       console.error('[AgoraService] Error leaving channel:', error);
     }
@@ -196,9 +235,13 @@ class AgoraService {
    * Toggle microphone mute
    */
   async setAudioMuted(muted: boolean): Promise<void> {
-    if (this.localAudioTrack) {
-      this.localAudioTrack.setEnabled(!muted);
-      console.log('[AgoraService] Audio muted:', muted);
+    if (this.engine) {
+      try {
+        await this.engine.muteLocalAudioStream(muted);
+        console.log('[AgoraService] Audio muted:', muted);
+      } catch (error) {
+        console.error('[AgoraService] Failed to mute audio:', error);
+      }
     }
   }
 
@@ -206,9 +249,19 @@ class AgoraService {
    * Toggle camera
    */
   async setVideoEnabled(enabled: boolean): Promise<void> {
-    if (this.localVideoTrack) {
-      this.localVideoTrack.setEnabled(enabled);
-      console.log('[AgoraService] Video enabled:', enabled);
+    if (this.engine) {
+      try {
+        await this.engine.enableLocalVideo(enabled);
+        if (enabled) {
+          await this.engine.startPreview();
+        } else {
+          await this.engine.stopPreview();
+        }
+        this.localVideoEnabled = enabled;
+        console.log('[AgoraService] Video enabled:', enabled);
+      } catch (error) {
+        console.error('[AgoraService] Failed to toggle video:', error);
+      }
     }
   }
 
@@ -216,8 +269,13 @@ class AgoraService {
    * Enable/disable audio track
    */
   async enableAudio(enabled: boolean): Promise<void> {
-    if (this.localAudioTrack) {
-      await this.localAudioTrack.setEnabled(enabled);
+    if (this.engine) {
+      try {
+        await this.engine.enableLocalAudio(enabled);
+        this.localAudioEnabled = enabled;
+      } catch (error) {
+        console.error('[AgoraService] Failed to enable audio:', error);
+      }
     }
   }
 
@@ -225,8 +283,13 @@ class AgoraService {
    * Enable/disable video track
    */
   async enableVideo(enabled: boolean): Promise<void> {
-    if (this.localVideoTrack) {
-      await this.localVideoTrack.setEnabled(enabled);
+    if (this.engine) {
+      try {
+        await this.engine.enableLocalVideo(enabled);
+        this.localVideoEnabled = enabled;
+      } catch (error) {
+        console.error('[AgoraService] Failed to enable video:', error);
+      }
     }
   }
 
@@ -234,128 +297,99 @@ class AgoraService {
    * Thay đổi camera (front/back)
    */
   async switchCamera(): Promise<void> {
-    if (this.localVideoTrack) {
+    if (this.engine) {
       try {
-        // For front camera, use 'front', for back use 'back'
-        await (this.localVideoTrack as any).setDevice('front');
-        console.log('[AgoraService] Camera switched to front');
+        await this.engine.switchCamera();
+        console.log('[AgoraService] Camera switched');
       } catch (error) {
-        console.log('[AgoraService] Camera switch not supported on web');
+        console.error('[AgoraService] Failed to switch camera:', error);
       }
     }
-  }
-
-  /**
-   * Lấy local video track
-   */
-  getLocalVideoTrack(): ILocalVideoTrack | null {
-    return this.localVideoTrack;
-  }
-
-  /**
-   * Lấy local audio track
-   */
-  getLocalAudioTrack(): ILocalAudioTrack | null {
-    return this.localAudioTrack;
-  }
-
-  /**
-   * Lấy remote video tracks
-   */
-  getRemoteVideoTracks(): Map<UID, IRemoteVideoTrack> {
-    return this.remoteVideoTracks;
-  }
-
-  /**
-   * Lấy remote audio tracks
-   */
-  getRemoteAudioTracks(): Map<UID, IRemoteAudioTrack> {
-    return this.remoteAudioTracks;
   }
 
   /**
    * Kiểm tra xem có đang trong cuộc gọi không
    */
   isInCall(): boolean {
-    return this.client !== null;
+    return this.isInChannelFlag;
   }
 
   /**
    * Đăng ký callback cho local video ready
    */
-  onLocalVideo(callback: (track: ILocalVideoTrack) => void): void {
-    this.onLocalVideoReady = callback;
+  onLocalVideo(callback: (uid: UID) => void): void {
+    this.onLocalVideoReadyCallback = callback;
   }
 
   /**
    * Đăng ký callback cho remote video ready
    */
-  onRemoteVideo(callback: (uid: UID, track: IRemoteVideoTrack) => void): void {
-    this.onRemoteVideoReady = callback;
+  onRemoteVideo(callback: (uid: UID) => void): void {
+    this.onRemoteVideoReadyCallback = callback;
   }
 
   /**
    * Đăng ký callback khi remote video bị xóa
    */
   onRemoteVideoRemoved(callback: (uid: UID) => void): void {
-    this.onRemoteVideoRemoved = callback;
+    this.onRemoteVideoRemovedCallback = callback;
   }
 
   /**
    * Đăng ký callback cho remote audio ready
    */
-  onRemoteAudio(callback: (uid: UID, track: IRemoteAudioTrack) => void): void {
-    this.onRemoteAudioReady = callback;
+  onRemoteAudio(callback: (uid: UID) => void): void {
+    this.onRemoteAudioReadyCallback = callback;
   }
 
   /**
    * Đăng ký callback khi remote audio bị xóa
    */
   onRemoteAudioRemoved(callback: (uid: UID) => void): void {
-    this.onRemoteAudioRemoved = callback;
+    this.onRemoteAudioRemovedCallback = callback;
   }
 
   /**
    * Đăng ký callback khi user tham gia
    */
   onUserJoined(callback: (uid: UID) => void): void {
-    this.onUserJoined = callback;
+    this.onUserJoinedCallback = callback;
   }
 
   /**
    * Đăng ký callback khi user rời đi
    */
   onUserLeft(callback: (uid: UID) => void): void {
-    this.onUserLeft = callback;
+    this.onUserLeftCallback = callback;
   }
 
   /**
    * Đăng ký callback khi có lỗi
    */
   setErrorHandler(callback: (error: Error) => void): void {
-    this.onError = callback;
+    this.onErrorCallback = callback;
   }
 
   /**
    * Đăng ký callback khi connection state thay đổi
    */
-  onConnectionStateChanged(callback: (state: string) => void): void {
-    this.onConnectionStateChange = callback;
+  onConnectionStateChanged(callback: (state: number) => void): void {
+    this.onConnectionStateChangeCallback = callback;
   }
 
   /**
    * Xóa tất cả callbacks
    */
   clearCallbacks(): void {
-    this.onLocalVideoReady = null;
-    this.onRemoteVideoReady = null;
-    this.onRemoteVideoRemoved = null;
-    this.onRemoteAudioReady = null;
-    this.onRemoteAudioRemoved = null;
-    this.onUserJoined = null;
-    this.onUserLeft = null;
-    this.onError = null;
-    this.onConnectionStateChange = null;
+    this.onLocalVideoReadyCallback = null;
+    this.onRemoteVideoReadyCallback = null;
+    this.onRemoteVideoRemovedCallback = null;
+    this.onRemoteAudioReadyCallback = null;
+    this.onRemoteAudioRemovedCallback = null;
+    this.onUserJoinedCallback = null;
+    this.onUserLeftCallback = null;
+    this.onErrorCallback = null;
+    this.onConnectionStateChangeCallback = null;
   }
 }
 
