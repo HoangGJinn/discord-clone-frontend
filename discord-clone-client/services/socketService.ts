@@ -23,10 +23,12 @@ class SocketService {
   private client: Client | null = null;
   private subscriptions: Map<
     string,
-    { subscription: StompSubscription; listeners: Set<(message: any) => void> }
+    { subscription: StompSubscription | null; listeners: Set<(message: any) => void> }
   > = new Map();
   private connectPromise: Promise<void> | null = null;
   private appState: AppStateStatus = AppState.currentState;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempt = 0;
 
   constructor() {
     AppState.addEventListener('change', this.handleAppStateChange);
@@ -62,6 +64,35 @@ class SocketService {
     });
   }
 
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
+  private scheduleReconnect(): void {
+    const token = getAuthToken();
+    if (!token || this.appState !== 'active') {
+      return;
+    }
+
+    if (this.reconnectTimer || this.connectPromise || this.client?.connected) {
+      return;
+    }
+
+    const delay = Math.min(30000, 1000 * Math.pow(2, this.reconnectAttempt));
+    this.reconnectAttempt = Math.min(this.reconnectAttempt + 1, 5);
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.connect().catch((error) => {
+        this.logSocketIssue('STOMP auto reconnect failed', error);
+        this.scheduleReconnect();
+      });
+    }, delay);
+  }
+
   private createSubscription<T = any>(
     destination: string,
     listeners: Set<(message: any) => void>
@@ -87,7 +118,7 @@ class SocketService {
 
     this.subscriptions.forEach((entry, destination) => {
       try {
-        entry.subscription.unsubscribe();
+        entry.subscription?.unsubscribe();
       } catch {
         // Ignore stale subscriptions during reconnect.
       }
@@ -106,6 +137,7 @@ class SocketService {
     }
 
     this.connectPromise = new Promise<void>((resolve, reject) => {
+      this.clearReconnectTimer();
       this.client = new Client({
         brokerURL: SOCKET_URL,
         connectHeaders: token ? { Authorization: `Bearer ${token}` } : {},
@@ -117,6 +149,7 @@ class SocketService {
         },
         onConnect: () => {
           console.log('STOMP: Connected successfully');
+          this.reconnectAttempt = 0;
           this.resubscribeAll();
 
           if (!this.connectPromise) {
@@ -132,15 +165,18 @@ class SocketService {
             body: frame.body,
           });
           this.connectPromise = null;
+          this.scheduleReconnect();
           reject(new Error(frame.headers['message'] || 'STOMP connection failed'));
         },
         onWebSocketError: (event) => {
           this.logSocketIssue('STOMP [WS ERROR]', event);
           this.connectPromise = null;
+          this.scheduleReconnect();
           reject(new Error('WebSocket connection error'));
         },
         onWebSocketClose: () => {
           this.connectPromise = null;
+          this.scheduleReconnect();
         },
       });
 
@@ -151,20 +187,30 @@ class SocketService {
   }
 
   async subscribe<T = any>(destination: string, callback: (message: T) => void): Promise<void> {
-    await this.connect();
-
     const existing = this.subscriptions.get(destination);
     if (existing) {
       existing.listeners.add(callback as (message: any) => void);
+      if (this.client?.connected && !existing.subscription) {
+        existing.subscription = this.createSubscription<T>(destination, existing.listeners);
+      }
       return;
     }
 
     const listeners = new Set<(message: any) => void>();
     listeners.add(callback as (message: any) => void);
 
-    const subscription = this.createSubscription<T>(destination, listeners);
+    this.subscriptions.set(destination, { subscription: null, listeners });
 
-    this.subscriptions.set(destination, { subscription, listeners });
+    try {
+      await this.connect();
+      const entry = this.subscriptions.get(destination);
+      if (entry && !entry.subscription && this.client?.connected) {
+        entry.subscription = this.createSubscription<T>(destination, entry.listeners);
+      }
+    } catch (error) {
+      this.logSocketIssue('STOMP subscribe will retry in background', error);
+      this.scheduleReconnect();
+    }
   }
 
   unsubscribe(destination: string, callback?: (message: any) => void): void {
@@ -178,7 +224,7 @@ class SocketService {
       }
     }
 
-    entry.subscription.unsubscribe();
+    entry.subscription?.unsubscribe();
     this.subscriptions.delete(destination);
   }
 
@@ -209,6 +255,8 @@ class SocketService {
   disconnect(): void {
     this.subscriptions.forEach((subscription) => subscription.unsubscribe());
     this.subscriptions.clear();
+    this.clearReconnectTimer();
+    this.reconnectAttempt = 0;
 
     if (this.client) {
       this.client.deactivate();

@@ -200,7 +200,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
     set({ user, token, isAuthenticated: true, isLoading: false, hasInitialized: true });
     setAuthToken(token);
-    socketService.connect();
+    void socketService.connect().catch(() => undefined);
   },
 
   loginWithCredentials: async (payload) => {
@@ -234,7 +234,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         hasInitialized: true,
       });
       setAuthToken(loginData.token);
-      socketService.connect();
+      void socketService.connect().catch(() => undefined);
     } catch (error) {
       await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
       await AsyncStorage.removeItem(AUTH_USER_KEY);
@@ -378,7 +378,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           const latestUser = mapProfileToUser(profileResponse.data, token);
           await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(latestUser));
           set({ user: latestUser, isAuthenticated: true, isLoading: false, hasInitialized: true });
-          socketService.connect();
+          void socketService.connect().catch(() => undefined);
         } catch (error) {
           const statusCode =
             typeof error === "object" && error !== null

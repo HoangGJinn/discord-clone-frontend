@@ -87,7 +87,7 @@ export default function ProfileScreen() {
         setIsUpdatingStatus(true);
 
         if (!socketService.isConnected()) {
-          await socketService.connect();
+          await socketService.connect().catch(() => undefined);
         }
 
         await apiClient.put('/users/me/status', null, {

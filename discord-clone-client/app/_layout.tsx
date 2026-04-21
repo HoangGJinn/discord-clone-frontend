@@ -53,7 +53,7 @@ export default function RootLayout() {
   // ── WebSocket Lifecycle ──────────────────────────
   useEffect(() => {
     if (isAuthenticated && !isLoading) {
-      socketService.connect();
+      void socketService.connect().catch(() => undefined);
     }
   }, [isAuthenticated, isLoading]);
 

@@ -11,6 +11,7 @@ export interface VoiceState {
   isMuted: boolean;
   isDeafened: boolean;
   hasCamera?: boolean;
+  hasScreenShare?: boolean;
 }
 
 export interface VoiceMessage {

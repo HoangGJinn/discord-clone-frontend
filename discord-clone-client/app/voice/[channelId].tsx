@@ -23,6 +23,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  ToastAndroid,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -33,7 +34,10 @@ let ChannelProfileType: any = null;
 let ClientRoleType: any = null;
 let RtcSurfaceView: any = null;
 let VideoSourceType: any = null;
+let VideoStreamType: any = null;
 let RenderModeType: any = null;
+let ScreenCaptureConfiguration: any = null;
+let ScreenCaptureParameters2: any = null;
 if (Platform.OS !== 'web') {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -43,7 +47,10 @@ if (Platform.OS !== 'web') {
     ClientRoleType = agora.ClientRoleType;
     RtcSurfaceView = agora.RtcSurfaceView;
     VideoSourceType = agora.VideoSourceType;
+    VideoStreamType = agora.VideoStreamType;
     RenderModeType = agora.RenderModeType;
+    ScreenCaptureConfiguration = agora.ScreenCaptureConfiguration;
+    ScreenCaptureParameters2 = agora.ScreenCaptureParameters2;
   } catch (e) {
     console.warn('react-native-agora not available:', e);
   }
@@ -70,6 +77,7 @@ function ParticipantCard({
   state,
   isSpeaking,
   hasVideo,
+  videoSourceType,
   remoteUid,
   isLocal,
   variant = 'grid',
@@ -79,6 +87,7 @@ function ParticipantCard({
   state: VoiceState;
   isSpeaking: boolean;
   hasVideo: boolean;
+  videoSourceType?: number;
   remoteUid?: number;
   isLocal: boolean;
   variant?: 'grid' | 'featured' | 'pip' | 'strip';
@@ -114,16 +123,25 @@ function ParticipantCard({
       {/* PHẦN HIỂN THỊ CHÍNH (VIDEO HOẶC AVATAR) */}
       {hasVideo && RtcSurfaceView && (isLocal || remoteUid !== undefined) ? (
         <View style={styles.videoCardContainer}>
+          {(() => {
+            // For remote streams, let SDK pick the bound source to avoid black frames on some devices.
+            const shouldForceSourceType = Boolean(isLocal);
+            const baseCanvas: any = {
+              uid: isLocal ? 0 : remoteUid,
+              renderMode: RenderModeType.RenderModeHidden,
+            };
+
+            if (shouldForceSourceType) {
+              baseCanvas.sourceType = videoSourceType ?? VideoSourceType.VideoSourceCameraPrimary;
+            }
+
+            return (
           <RtcSurfaceView
             style={styles.videoViewFull}
-            canvas={{
-              uid: isLocal ? 0 : remoteUid,
-              ...(isLocal
-                ? { sourceType: VideoSourceType.VideoSourceCameraPrimary }
-                : {}),
-              renderMode: RenderModeType.RenderModeHidden,
-            }}
+            canvas={baseCanvas}
           />
+            );
+          })()}
         </View>
       ) : (
         <View style={styles.avatarModeContainer}>
@@ -162,11 +180,21 @@ function ParticipantCard({
             <Ionicons name="mic-off" size={12} color="#fff" />
           </View>
         )}
+        {state.hasScreenShare && (
+          <View style={styles.statusBadgeCircle}>
+            <Ionicons name="desktop-outline" size={12} color="#fff" />
+          </View>
+        )}
       </View>
       </View>
     </TouchableOpacity>
   );
 }
+
+type RemoteVideoUidEntry = {
+  cameraUid?: number;
+  screenUid?: number;
+};
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
@@ -191,10 +219,11 @@ export default function VoiceRoomScreen() {
     serverId: string;
   }>();
 
-  const [remoteUidMap, setRemoteUidMap] = useState<Record<string, number>>({});
+  const [remoteUidMap, setRemoteUidMap] = useState<Record<string, RemoteVideoUidEntry>>({});
   const [isMuted, setIsMuted] = useState(false);
   const [isDeafened, setIsDeafened] = useState(false);
   const [isCameraOn, setIsCameraOn] = useState(false);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [isJoined, setIsJoined] = useState(false);
   const [status, setStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
   const [channelInfo, setChannelInfo] = useState<ChannelResponse | null>(null);
@@ -203,9 +232,14 @@ export default function VoiceRoomScreen() {
 
   const engineRef = useRef<any>(null);
   const uidToUserIdMap = useRef<Map<number, string>>(new Map());
+  const remoteUidMapRef = useRef<Record<string, RemoteVideoUidEntry>>({});
   const participantsRef = useRef<VoiceState[]>([]);
   const isMutedRef = useRef(false);
   const isDeafenedRef = useRef(false);
+  const isScreenSharingRef = useRef(false);
+  const screenSharePendingRef = useRef(false);
+  const screenSharePublishedRef = useRef(false);
+  const screenShareActivationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pipPosition = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
   const pipOffset = useRef({ x: 0, y: 0 });
   const channelIdNum = Number(channelId);
@@ -218,18 +252,78 @@ export default function VoiceRoomScreen() {
     ...state,
     muted: state.isMuted,
     deafened: state.isDeafened,
+    screenShare: state.hasScreenShare,
   }) as any;
+
+  const clearScreenShareActivationTimeout = useCallback(() => {
+    if (screenShareActivationTimeoutRef.current) {
+      clearTimeout(screenShareActivationTimeoutRef.current);
+      screenShareActivationTimeoutRef.current = null;
+    }
+  }, []);
+
+  const syncRemoteUidMap = useCallback((next: Record<string, RemoteVideoUidEntry>) => {
+    remoteUidMapRef.current = next;
+    setRemoteUidMap(next);
+  }, []);
+
+  const getParticipantVideoUid = useCallback(
+    (participant: VoiceState) => {
+      if (participant.userId === userId) {
+        return 0;
+      }
+
+      const rawEntry = (remoteUidMap as Record<string, RemoteVideoUidEntry | number>)[participant.userId];
+
+      // Backward compatibility: tolerate stale numeric shape from previous app state.
+      if (typeof rawEntry === 'number') {
+        return rawEntry;
+      }
+
+      const entry = rawEntry;
+      if (entry) {
+        if (participant.hasScreenShare && entry.screenUid !== undefined) {
+          return entry.screenUid;
+        }
+
+        if (participant.hasCamera && entry.cameraUid !== undefined) {
+          return entry.cameraUid;
+        }
+
+        const merged = entry.screenUid ?? entry.cameraUid;
+        if (merged !== undefined) {
+          return merged;
+        }
+      }
+
+      // Last-resort lookup from uid->userId index to avoid blank remote tiles.
+      for (const [mappedUid, mappedUserId] of uidToUserIdMap.current.entries()) {
+        if (mappedUserId === participant.userId) {
+          return mappedUid;
+        }
+      }
+
+      return undefined;
+    },
+    [remoteUidMap, userId]
+  );
 
   useEffect(() => {
     participantsRef.current = participants;
   }, [participants]);
 
   useEffect(() => {
+    isScreenSharingRef.current = isScreenSharing;
+  }, [isScreenSharing]);
+
+  useEffect(() => {
     if (!pinnedVideoUserId) {
       return;
     }
     const stillVisible = participants.some(
-      (participant) => participant.userId === pinnedVideoUserId && Boolean(participant.hasCamera)
+      (participant) =>
+        participant.userId === pinnedVideoUserId &&
+        Boolean(participant.hasCamera || participant.hasScreenShare)
     );
     if (!stillVisible) {
       setPinnedVideoUserId(null);
@@ -329,6 +423,7 @@ export default function VoiceRoomScreen() {
         const mutedValue = state?.isMuted ?? state?.muted ?? false;
         const deafenedValue = state?.isDeafened ?? state?.deafened ?? false;
         const hasCameraValue = state?.hasCamera ?? state?.isHasCamera ?? false;
+        const hasScreenShareValue = state?.hasScreenShare ?? state?.screenShare ?? false;
 
         return {
           userId: String(state?.userId ?? ''),
@@ -338,6 +433,7 @@ export default function VoiceRoomScreen() {
           isMuted: Boolean(mutedValue),
           isDeafened: Boolean(deafenedValue),
           hasCamera: Boolean(hasCameraValue),
+          hasScreenShare: Boolean(hasScreenShareValue),
         };
       };
 
@@ -358,6 +454,7 @@ export default function VoiceRoomScreen() {
                   isMuted: isMutedRef.current,
                   isDeafened: isDeafenedRef.current,
                   hasCamera: false,
+                  hasScreenShare: false,
                 },
               ]
         );
@@ -429,6 +526,7 @@ export default function VoiceRoomScreen() {
         isMuted: false,
         isDeafened: false,
         hasCamera: false,
+        hasScreenShare: false,
       });
 
       await sendVoiceAction({
@@ -440,6 +538,7 @@ export default function VoiceRoomScreen() {
           isMuted: false,
           isDeafened: false,
           hasCamera: false,
+          hasScreenShare: false,
         }),
       });
 
@@ -448,22 +547,141 @@ export default function VoiceRoomScreen() {
         const engine = createAgoraRtcEngine();
         engineRef.current = engine;
 
-        const mapRemoteUidToParticipant = (remoteUid: number): string | undefined => {
-          const existing = uidToUserIdMap.current.get(remoteUid);
-          if (existing) return existing;
+        const isScreenSourceType = (sourceType?: number) => {
+          if (sourceType === undefined || sourceType === null) {
+            return false;
+          }
 
-          const mappedUserIds = new Set(uidToUserIdMap.current.values());
-          const fallback = participantsRef.current.find(
-            (participant) =>
-              participant.userId !== userId &&
-              participant.channelId === channelIdNum &&
-              !mappedUserIds.has(participant.userId)
-          );
+          const screenTypes = [
+            VideoSourceType?.VideoSourceScreenPrimary,
+            VideoSourceType?.VideoSourceScreen,
+            VideoSourceType?.VideoSourceScreenSecondary,
+            VideoSourceType?.VideoSourceScreenThird,
+            VideoSourceType?.VideoSourceScreenFourth,
+          ].filter((value) => typeof value === 'number');
+
+          return screenTypes.includes(sourceType);
+        };
+
+        const setMappedUidForUser = (
+          mappedUserId: string,
+          remoteUid: number,
+          sourceHint?: 'camera' | 'screen'
+        ) => {
+          const currentEntry = remoteUidMapRef.current[mappedUserId] ?? {};
+          const nextEntry: RemoteVideoUidEntry = { ...currentEntry };
+
+          if (sourceHint === 'screen') {
+            nextEntry.screenUid = remoteUid;
+          } else if (sourceHint === 'camera') {
+            nextEntry.cameraUid = remoteUid;
+          } else if (nextEntry.cameraUid === undefined) {
+            nextEntry.cameraUid = remoteUid;
+          } else if (nextEntry.screenUid === undefined && nextEntry.cameraUid !== remoteUid) {
+            nextEntry.screenUid = remoteUid;
+          }
+
+          uidToUserIdMap.current.set(remoteUid, mappedUserId);
+          syncRemoteUidMap({
+            ...remoteUidMapRef.current,
+            [mappedUserId]: nextEntry,
+          });
+        };
+
+        const ensureRemoteVideoSubscription = (remoteUid: number) => {
+          if (!remoteUid || remoteUid === 0) {
+            return;
+          }
+
+          const unmuteRes = engine.muteRemoteVideoStream?.(remoteUid, false);
+          if (typeof unmuteRes === 'number' && unmuteRes < 0) {
+            console.warn('[Voice] muteRemoteVideoStream(false) failed:', remoteUid, unmuteRes);
+          }
+
+          const highStream = VideoStreamType?.VideoStreamHigh;
+          if (highStream !== undefined) {
+            const streamRes = engine.setRemoteVideoStreamType?.(remoteUid, highStream);
+            if (typeof streamRes === 'number' && streamRes < 0) {
+              console.warn('[Voice] setRemoteVideoStreamType(high) failed:', remoteUid, streamRes);
+            }
+          }
+        };
+
+        const announceScreenShareStarted = () => {
+          if (!screenSharePendingRef.current && !isScreenSharingRef.current) {
+            return;
+          }
+          if (screenSharePublishedRef.current) {
+            return;
+          }
+
+          screenSharePendingRef.current = false;
+          screenSharePublishedRef.current = true;
+          clearScreenShareActivationTimeout();
+
+          updateParticipant({
+            userId,
+            channelId: channelIdNum,
+            serverId: serverIdNum,
+            isMuted: isMutedRef.current,
+            isDeafened: isDeafenedRef.current,
+            hasCamera: false,
+            hasScreenShare: true,
+          });
+
+          void sendVoiceAction({
+            type: 'UPDATE_STATE',
+            state: toWireVoiceState({
+              userId,
+              channelId: channelIdNum,
+              serverId: serverIdNum,
+              isMuted: isMutedRef.current,
+              isDeafened: isDeafenedRef.current,
+              hasCamera: false,
+              hasScreenShare: true,
+            }),
+          });
+
+          if (__DEV__) {
+            console.log('[Voice] Screen share confirmed; broadcasted hasScreenShare=true');
+          }
+        };
+
+        const mapRemoteUidToParticipant = (
+          remoteUid: number,
+          sourceHint?: 'camera' | 'screen'
+        ): string | undefined => {
+          const existing = uidToUserIdMap.current.get(remoteUid);
+          if (existing) {
+            setMappedUidForUser(existing, remoteUid, sourceHint);
+            return existing;
+          }
+
+          const fallback = participantsRef.current.find((participant) => {
+            if (participant.userId === userId || participant.channelId !== channelIdNum) {
+              return false;
+            }
+
+            const entry = remoteUidMapRef.current[participant.userId] ?? {};
+
+            if (participant.hasScreenShare && !participant.hasCamera) {
+              return entry.screenUid === undefined;
+            }
+
+            if (participant.hasCamera && !participant.hasScreenShare) {
+              return entry.cameraUid === undefined;
+            }
+
+            if (participant.hasCamera && participant.hasScreenShare) {
+              return entry.cameraUid === undefined || entry.screenUid === undefined;
+            }
+
+            return entry.cameraUid === undefined;
+          });
 
           if (!fallback) return undefined;
 
-          uidToUserIdMap.current.set(remoteUid, fallback.userId);
-          setRemoteUidMap((prev) => ({ ...prev, [fallback.userId]: remoteUid }));
+          setMappedUidForUser(fallback.userId, remoteUid, sourceHint);
           return fallback.userId;
         };
 
@@ -479,11 +697,45 @@ export default function VoiceRoomScreen() {
             // Enable volume indication: 300ms interval
             engine.enableAudioVolumeIndication(300, 3, true);
           },
+          onFirstLocalVideoFrame: (source: number, width: number, height: number, elapsed: number) => {
+            if (isScreenSourceType(source)) {
+              if (__DEV__) {
+                console.log('[Voice] onFirstLocalVideoFrame(screen):', JSON.stringify({ source, width, height, elapsed }));
+              }
+              announceScreenShareStarted();
+            }
+          },
+          onVideoPublishStateChanged: (
+            source: number,
+            channel: string,
+            oldState: number,
+            newState: number,
+            elapseSinceLastState: number
+          ) => {
+            if (__DEV__) {
+              console.log(
+                '[Voice] onVideoPublishStateChanged',
+                JSON.stringify({ source, channel, oldState, newState, elapseSinceLastState })
+              );
+            }
+
+            if (isScreenSourceType(source) && newState !== 0) {
+              announceScreenShareStarted();
+            }
+          },
           onUserInfoUpdated: (uid: number, userInfo: any) => {
             if (userInfo?.userAccount) {
-              uidToUserIdMap.current.set(uid, userInfo.userAccount);
-              setRemoteUidMap((prev) => ({ ...prev, [userInfo.userAccount]: uid }));
-              console.log('[Voice] uid map:', uid, '→', userInfo.userAccount);
+              const userAccount = String(userInfo.userAccount);
+              const participant = participantsRef.current.find((p) => p.userId === userAccount);
+              const sourceHint: 'camera' | 'screen' | undefined = participant?.hasScreenShare
+                ? 'screen'
+                : participant?.hasCamera
+                  ? 'camera'
+                  : undefined;
+
+              setMappedUidForUser(userAccount, uid, sourceHint);
+
+              console.log('[Voice] uid map:', uid, '→', userAccount);
             }
           },
           onAudioVolumeIndication: (...args: any[]) => {
@@ -511,23 +763,41 @@ export default function VoiceRoomScreen() {
           },
           onUserJoined: (_connection: any, remoteUid: number) => {
             console.log('[Voice] 👥 Remote user joined uid:', remoteUid);
-            mapRemoteUidToParticipant(remoteUid);
+            mapRemoteUidToParticipant(remoteUid, 'camera');
+            ensureRemoteVideoSubscription(remoteUid);
           },
           onUserOffline: (_connection: any, remoteUid: number) => {
             console.log('[Voice] 👤 Remote user left uid:', remoteUid);
             const userAccount = uidToUserIdMap.current.get(remoteUid);
             if (userAccount) {
-              setRemoteUidMap((prev) => {
-                const next = { ...prev };
-                delete next[userAccount];
-                return next;
-              });
+              const next = { ...remoteUidMapRef.current };
+              const entry = next[userAccount];
+              if (entry) {
+                const updatedEntry: RemoteVideoUidEntry = { ...entry };
+                if (updatedEntry.cameraUid === remoteUid) {
+                  delete updatedEntry.cameraUid;
+                }
+                if (updatedEntry.screenUid === remoteUid) {
+                  delete updatedEntry.screenUid;
+                }
+
+                if (updatedEntry.cameraUid === undefined && updatedEntry.screenUid === undefined) {
+                  delete next[userAccount];
+                } else {
+                  next[userAccount] = updatedEntry;
+                }
+
+                syncRemoteUidMap(next);
+              }
             }
             uidToUserIdMap.current.delete(remoteUid);
           },
           onUserEnableVideo: (_connection: any, remoteUid: number, enabled: boolean) => {
-            const userAccount = mapRemoteUidToParticipant(remoteUid);
+            const userAccount = mapRemoteUidToParticipant(remoteUid, 'camera');
             if (!userAccount) return;
+            if (enabled) {
+              ensureRemoteVideoSubscription(remoteUid);
+            }
             updateParticipant({
               userId: userAccount,
               channelId: channelIdNum,
@@ -535,10 +805,11 @@ export default function VoiceRoomScreen() {
               isMuted: participantsRef.current.find((p) => p.userId === userAccount)?.isMuted ?? false,
               isDeafened: participantsRef.current.find((p) => p.userId === userAccount)?.isDeafened ?? false,
               hasCamera: enabled,
+              hasScreenShare: participantsRef.current.find((p) => p.userId === userAccount)?.hasScreenShare ?? false,
             });
           },
           onUserMuteVideo: (_connection: any, remoteUid: number, muted: boolean) => {
-            const userAccount = mapRemoteUidToParticipant(remoteUid);
+            const userAccount = mapRemoteUidToParticipant(remoteUid, 'camera');
             if (!userAccount) return;
             updateParticipant({
               userId: userAccount,
@@ -547,7 +818,46 @@ export default function VoiceRoomScreen() {
               isMuted: participantsRef.current.find((p) => p.userId === userAccount)?.isMuted ?? false,
               isDeafened: participantsRef.current.find((p) => p.userId === userAccount)?.isDeafened ?? false,
               hasCamera: !muted,
+              hasScreenShare: participantsRef.current.find((p) => p.userId === userAccount)?.hasScreenShare ?? false,
             });
+          },
+          onVideoSizeChanged: (
+            _connection: any,
+            sourceType: number,
+            remoteUid: number,
+            width: number,
+            height: number
+          ) => {
+            if (!remoteUid || remoteUid === 0) {
+              return;
+            }
+
+            const sourceHint: 'camera' | 'screen' = isScreenSourceType(sourceType)
+              ? 'screen'
+              : 'camera';
+            const userAccount = mapRemoteUidToParticipant(remoteUid, sourceHint);
+            ensureRemoteVideoSubscription(remoteUid);
+
+            if (__DEV__) {
+              console.log(
+                '[Voice] onVideoSizeChanged',
+                JSON.stringify({ sourceType, remoteUid, width, height, sourceHint, userAccount })
+              );
+            }
+          },
+          onVideoSubscribeStateChanged: (
+            channel: string,
+            uid: number,
+            oldState: number,
+            newState: number,
+            elapseSinceLastState: number
+          ) => {
+            if (__DEV__) {
+              console.log(
+                '[Voice] onVideoSubscribeStateChanged',
+                JSON.stringify({ channel, uid, oldState, newState, elapseSinceLastState })
+              );
+            }
           },
           onError: (err: number, msg: string) => {
             // 1052 is often transient on mobile and does not always break media flow.
@@ -558,17 +868,62 @@ export default function VoiceRoomScreen() {
             console.error('[Voice] ❌ Agora error:', err, msg);
             setStatus('error');
           },
+          onPermissionError: (permissionType: number) => {
+            console.warn('[Voice] Permission error:', permissionType);
+            // 2 is screen capture permission in Agora docs.
+            if (permissionType === 2) {
+              screenSharePendingRef.current = false;
+              screenSharePublishedRef.current = false;
+              clearScreenShareActivationTimeout();
+              setIsScreenSharing(false);
+              updateParticipant({
+                userId,
+                channelId: channelIdNum,
+                serverId: serverIdNum,
+                isMuted: isMutedRef.current,
+                isDeafened: isDeafenedRef.current,
+                hasCamera: false,
+                hasScreenShare: false,
+              });
+              void sendVoiceAction({
+                type: 'UPDATE_STATE',
+                state: toWireVoiceState({
+                  userId,
+                  channelId: channelIdNum,
+                  serverId: serverIdNum,
+                  isMuted: isMutedRef.current,
+                  isDeafened: isDeafenedRef.current,
+                  hasCamera: false,
+                  hasScreenShare: false,
+                }),
+              });
+              Alert.alert(
+                'Chưa cấp quyền chia sẻ màn hình',
+                'Bạn đã từ chối quyền ghi màn hình. Hãy bấm Chia sẻ màn hình và chọn Cho phép để tiếp tục.'
+              );
+            }
+          },
         });
 
         engine.setChannelProfile(ChannelProfileType.ChannelProfileCommunication);
         engine.enableAudio();
+        engine.enableVideo();
         engine.setDefaultAudioRouteToSpeakerphone(true);
+
+        const highStream = VideoStreamType?.VideoStreamHigh;
+        if (highStream !== undefined) {
+          const defaultStreamRes = engine.setRemoteDefaultVideoStreamType?.(highStream);
+          if (typeof defaultStreamRes === 'number' && defaultStreamRes < 0) {
+            console.warn('[Voice] setRemoteDefaultVideoStreamType(high) failed:', defaultStreamRes);
+          }
+        }
 
         console.log(`[Voice] Joining channel: ${channelIdNum}`);
         engine.joinChannelWithUserAccount(tokenToUse, String(channelIdNum), userId, {
           clientRoleType: ClientRoleType?.ClientRoleBroadcaster,
           publishMicrophoneTrack: true,
           publishCameraTrack: false,
+          publishScreenCaptureVideo: false,
           autoSubscribeAudio: true,
           autoSubscribeVideo: true,
         });
@@ -581,15 +936,34 @@ export default function VoiceRoomScreen() {
       setStatus('error');
       Alert.alert('Lỗi', 'Không thể kết nối phòng thoại: ' + (err.message ?? err));
     }
-  }, [channelIdNum, serverIdNum, userId, addParticipant, handleVoiceSocketMessage, setSpeakingUsers, updateParticipant, router]);
+  }, [
+    channelIdNum,
+    serverIdNum,
+    userId,
+    addParticipant,
+    handleVoiceSocketMessage,
+    setSpeakingUsers,
+    updateParticipant,
+    router,
+    syncRemoteUidMap,
+    clearScreenShareActivationTimeout,
+  ]);
 
   useEffect(() => {
     initVoice();
 
     return () => {
+      clearScreenShareActivationTimeout();
+      screenSharePendingRef.current = false;
+      screenSharePublishedRef.current = false;
       // Cleanup
       if (engineRef.current) {
         try {
+          const screenSourceType =
+            VideoSourceType?.VideoSourceScreenPrimary ?? VideoSourceType?.VideoSourceScreen;
+          engineRef.current.stopPreview?.(screenSourceType);
+          engineRef.current.stopScreenCaptureBySourceType?.(screenSourceType);
+          engineRef.current.stopScreenCapture?.();
           // Explicitly disable local video before leaving to prevent camera from staying active.
           engineRef.current.stopPreview?.();
           engineRef.current.muteLocalVideoStream?.(true);
@@ -602,6 +976,7 @@ export default function VoiceRoomScreen() {
         engineRef.current = null;
       }
       setIsCameraOn(false);
+      setIsScreenSharing(false);
       if (Number.isFinite(serverIdNum) && userId) {
         sendVoiceAction({
           type: 'LEAVE',
@@ -612,6 +987,7 @@ export default function VoiceRoomScreen() {
             isMuted: isMutedRef.current,
             isDeafened: isDeafenedRef.current,
             hasCamera: false,
+            hasScreenShare: false,
           }),
         });
         unsubscribeVoice(serverIdNum, handleVoiceSocketMessage);
@@ -619,7 +995,16 @@ export default function VoiceRoomScreen() {
       clearParticipants();
       clearCameraUsers();
     };
-  }, [initVoice, channelIdNum, serverIdNum, userId, clearCameraUsers, clearParticipants, handleVoiceSocketMessage]);
+  }, [
+    initVoice,
+    channelIdNum,
+    serverIdNum,
+    userId,
+    clearCameraUsers,
+    clearParticipants,
+    handleVoiceSocketMessage,
+    clearScreenShareActivationTimeout,
+  ]);
 
   // ── Controls ──────────────────────────────────────────────────────────────
 
@@ -635,6 +1020,7 @@ export default function VoiceRoomScreen() {
       isMuted: next,
       isDeafened,
       hasCamera: isCameraOn,
+      hasScreenShare: screenSharePublishedRef.current,
     });
     sendVoiceAction({
       type: 'UPDATE_STATE',
@@ -645,6 +1031,7 @@ export default function VoiceRoomScreen() {
         isMuted: next,
         isDeafened,
         hasCamera: isCameraOn,
+        hasScreenShare: screenSharePublishedRef.current,
       }),
     });
   }, [isMuted, isDeafened, isCameraOn, userId, channelIdNum, serverIdNum, updateParticipant]);
@@ -667,6 +1054,7 @@ export default function VoiceRoomScreen() {
       isMuted: next ? true : isMuted,
       isDeafened: next,
       hasCamera: isCameraOn,
+      hasScreenShare: screenSharePublishedRef.current,
     });
     sendVoiceAction({
       type: 'UPDATE_STATE',
@@ -677,12 +1065,15 @@ export default function VoiceRoomScreen() {
         isMuted: next ? true : isMuted,
         isDeafened: next,
         hasCamera: isCameraOn,
+        hasScreenShare: screenSharePublishedRef.current,
       }),
     });
   }, [isDeafened, isMuted, isCameraOn, userId, channelIdNum, serverIdNum, updateParticipant]);
 
   const toggleCamera = useCallback(async () => {
     const engine = engineRef.current;
+    const screenSourceType =
+      VideoSourceType?.VideoSourceScreenPrimary ?? VideoSourceType?.VideoSourceScreen;
     if (!engine) {
       Alert.alert('Chưa sẵn sàng', 'Đang kết nối voice, vui lòng thử lại sau vài giây.');
       return;
@@ -700,6 +1091,21 @@ export default function VoiceRoomScreen() {
         return;
       }
       try {
+        // Camera and screen share are mutually exclusive in this room UI.
+        if (isScreenSharing) {
+          const stopByTypeRes = engine.stopScreenCaptureBySourceType?.(screenSourceType);
+          if (typeof stopByTypeRes === 'number' && stopByTypeRes < 0) {
+            engine.stopScreenCapture?.();
+          }
+          engine.stopPreview?.(screenSourceType);
+          clearScreenShareActivationTimeout();
+          screenSharePendingRef.current = false;
+          screenSharePublishedRef.current = false;
+          setIsScreenSharing(false);
+          if (Platform.OS === 'android') {
+            ToastAndroid.show('Đã tắt chia sẻ màn hình để bật camera', ToastAndroid.SHORT);
+          }
+        }
         engine.enableVideo();
         engine.enableLocalVideo(true);
         engine.muteLocalVideoStream(false);
@@ -707,6 +1113,7 @@ export default function VoiceRoomScreen() {
         engine.updateChannelMediaOptions?.({
           publishMicrophoneTrack: !isMutedRef.current,
           publishCameraTrack: true,
+          publishScreenCaptureVideo: false,
           autoSubscribeAudio: true,
           autoSubscribeVideo: true,
           clientRoleType: ClientRoleType?.ClientRoleBroadcaster,
@@ -719,6 +1126,7 @@ export default function VoiceRoomScreen() {
           isMuted: isMutedRef.current,
           isDeafened: isDeafenedRef.current,
           hasCamera: true,
+          hasScreenShare: false,
         });
         sendVoiceAction({
           type: 'UPDATE_STATE',
@@ -729,6 +1137,7 @@ export default function VoiceRoomScreen() {
             isMuted: isMutedRef.current,
             isDeafened: isDeafenedRef.current,
             hasCamera: true,
+            hasScreenShare: false,
           }),
         });
       } catch (error) {
@@ -743,6 +1152,7 @@ export default function VoiceRoomScreen() {
         engine.updateChannelMediaOptions?.({
           publishMicrophoneTrack: !isMutedRef.current,
           publishCameraTrack: false,
+          publishScreenCaptureVideo: false,
           autoSubscribeAudio: true,
           autoSubscribeVideo: true,
           clientRoleType: ClientRoleType?.ClientRoleBroadcaster,
@@ -755,6 +1165,7 @@ export default function VoiceRoomScreen() {
           isMuted: isMutedRef.current,
           isDeafened: isDeafenedRef.current,
           hasCamera: false,
+          hasScreenShare: false,
         });
         sendVoiceAction({
           type: 'UPDATE_STATE',
@@ -765,13 +1176,23 @@ export default function VoiceRoomScreen() {
             isMuted: isMutedRef.current,
             isDeafened: isDeafenedRef.current,
             hasCamera: false,
+            hasScreenShare: false,
           }),
         });
       } catch (error) {
         console.error('[Voice] Failed to disable camera:', error);
       }
     }
-  }, [isCameraOn, isJoined, userId, channelIdNum, serverIdNum, updateParticipant]);
+  }, [
+    isCameraOn,
+    isJoined,
+    isScreenSharing,
+    userId,
+    channelIdNum,
+    serverIdNum,
+    updateParticipant,
+    clearScreenShareActivationTimeout,
+  ]);
 
   const flipCamera = useCallback(async () => {
     if (engineRef.current && isCameraOn) {
@@ -790,7 +1211,217 @@ export default function VoiceRoomScreen() {
     router.back();
   }, [router]);
 
-  const videoParticipants = participants.filter((participant) => Boolean(participant.hasCamera));
+  const getParticipantVideoSourceType = useCallback((participant: VoiceState) => {
+    const screenSourceType =
+      VideoSourceType?.VideoSourceScreenPrimary ?? VideoSourceType?.VideoSourceScreen;
+    return participant.hasScreenShare
+      ? screenSourceType
+      : VideoSourceType?.VideoSourceCameraPrimary;
+  }, []);
+
+  const toggleScreenShare = useCallback(async () => {
+    const engine = engineRef.current;
+    if (!engine) {
+      Alert.alert('Chưa sẵn sàng', 'Đang kết nối voice, vui lòng thử lại sau vài giây.');
+      return;
+    }
+
+    if (!isJoined) {
+      Alert.alert('Đang vào phòng', 'Hãy chờ kết nối hoàn tất rồi chia sẻ màn hình.');
+      return;
+    }
+
+    const next = !isScreenSharing;
+    const screenSourceType =
+      VideoSourceType?.VideoSourceScreenPrimary ?? VideoSourceType?.VideoSourceScreen;
+
+    try {
+      if (next) {
+        const captureParams = ScreenCaptureParameters2
+          ? new ScreenCaptureParameters2()
+          : { captureVideo: true };
+        captureParams.captureVideo = true;
+        captureParams.captureAudio = false;
+        captureParams.videoParams = {
+          dimensions: { width: 1280, height: 720 },
+          frameRate: 15,
+          bitrate: 0,
+        };
+
+        // Camera and screen share are mutually exclusive in this room UI.
+        if (isCameraOn) {
+          engine.stopPreview?.();
+          engine.muteLocalVideoStream?.(true);
+          engine.enableLocalVideo?.(false);
+          setIsCameraOn(false);
+          if (Platform.OS === 'android') {
+            ToastAndroid.show('Đã tắt camera để bật chia sẻ màn hình', ToastAndroid.SHORT);
+          }
+        }
+        engine.enableVideo?.();
+
+        // Prefer sourceType APIs so render source and published source stay aligned.
+        let startSucceeded = false;
+        if (engine.startScreenCaptureBySourceType) {
+          try {
+            const sourceConfig = ScreenCaptureConfiguration ? new ScreenCaptureConfiguration() : {};
+            sourceConfig.captureVideo = true;
+            sourceConfig.captureAudio = false;
+            sourceConfig.videoParams = captureParams.videoParams;
+
+            const byTypeRes = engine.startScreenCaptureBySourceType(
+              screenSourceType,
+              sourceConfig
+            );
+            if (byTypeRes === undefined || (typeof byTypeRes === 'number' && byTypeRes >= 0)) {
+              startSucceeded = true;
+            } else {
+              console.warn('[Voice] startScreenCaptureBySourceType failed, fallback to startScreenCapture:', byTypeRes);
+            }
+          } catch (byTypeStartError) {
+            console.warn('[Voice] startScreenCaptureBySourceType threw, fallback to startScreenCapture:', byTypeStartError);
+          }
+        }
+
+        if (!startSucceeded) {
+          // Legacy fallback when sourceType API is unavailable or returns error on some devices.
+          const startRes = engine.startScreenCapture?.(captureParams);
+          if (startRes === undefined || (typeof startRes === 'number' && startRes >= 0)) {
+            startSucceeded = true;
+          } else {
+            throw new Error(`startScreenCapture failed: ${startRes}`);
+          }
+        }
+
+        const previewRes = engine.startPreview?.(screenSourceType);
+        if (typeof previewRes === 'number' && previewRes < 0) {
+          console.warn('[Voice] startPreview(screen) failed:', previewRes);
+        }
+      } else {
+        let stopSucceeded = false;
+        const stopPreviewRes = engine.stopPreview?.(screenSourceType);
+        if (typeof stopPreviewRes === 'number' && stopPreviewRes < 0) {
+          console.warn('[Voice] stopPreview(screen) failed:', stopPreviewRes);
+        }
+        if (engine.stopScreenCaptureBySourceType) {
+          try {
+            const byTypeStopRes = engine.stopScreenCaptureBySourceType(
+              screenSourceType
+            );
+            if (byTypeStopRes === undefined || (typeof byTypeStopRes === 'number' && byTypeStopRes >= 0)) {
+              stopSucceeded = true;
+            } else {
+              console.warn('[Voice] stopScreenCaptureBySourceType failed, fallback to stopScreenCapture:', byTypeStopRes);
+            }
+          } catch (byTypeStopError) {
+            console.warn('[Voice] stopScreenCaptureBySourceType threw, fallback to stopScreenCapture:', byTypeStopError);
+          }
+        }
+
+        if (!stopSucceeded) {
+          const stopRes = engine.stopScreenCapture?.();
+          if (stopRes === undefined || (typeof stopRes === 'number' && stopRes >= 0)) {
+            stopSucceeded = true;
+          } else {
+            throw new Error(`stopScreenCapture failed: ${stopRes}`);
+          }
+        }
+      }
+
+      engine.updateChannelMediaOptions?.({
+        publishMicrophoneTrack: !isMutedRef.current,
+        publishCameraTrack: false,
+        publishScreenCaptureVideo: next,
+        autoSubscribeAudio: true,
+        autoSubscribeVideo: true,
+        clientRoleType: ClientRoleType?.ClientRoleBroadcaster,
+      });
+
+      setIsScreenSharing(next);
+      updateParticipant({
+        userId,
+        channelId: channelIdNum,
+        serverId: serverIdNum,
+        isMuted: isMutedRef.current,
+        isDeafened: isDeafenedRef.current,
+        hasCamera: false,
+        hasScreenShare: next,
+      });
+
+      if (next) {
+        // Wait for local screen frames before notifying other participants.
+        screenSharePendingRef.current = true;
+        screenSharePublishedRef.current = false;
+        clearScreenShareActivationTimeout();
+
+        screenShareActivationTimeoutRef.current = setTimeout(() => {
+          if (!screenSharePendingRef.current || screenSharePublishedRef.current) {
+            return;
+          }
+
+          console.warn('[Voice] Screen share timed out waiting for first frame; reverting pending state.');
+          screenSharePendingRef.current = false;
+          screenSharePublishedRef.current = false;
+          setIsScreenSharing(false);
+          updateParticipant({
+            userId,
+            channelId: channelIdNum,
+            serverId: serverIdNum,
+            isMuted: isMutedRef.current,
+            isDeafened: isDeafenedRef.current,
+            hasCamera: false,
+            hasScreenShare: false,
+          });
+        }, 12000);
+      } else {
+        screenSharePendingRef.current = false;
+        screenSharePublishedRef.current = false;
+        clearScreenShareActivationTimeout();
+
+        sendVoiceAction({
+          type: 'UPDATE_STATE',
+          state: toWireVoiceState({
+            userId,
+            channelId: channelIdNum,
+            serverId: serverIdNum,
+            isMuted: isMutedRef.current,
+            isDeafened: isDeafenedRef.current,
+            hasCamera: false,
+            hasScreenShare: false,
+          }),
+        });
+      }
+    } catch (error) {
+      clearScreenShareActivationTimeout();
+      screenSharePendingRef.current = false;
+      screenSharePublishedRef.current = false;
+      setIsScreenSharing(false);
+      updateParticipant({
+        userId,
+        channelId: channelIdNum,
+        serverId: serverIdNum,
+        isMuted: isMutedRef.current,
+        isDeafened: isDeafenedRef.current,
+        hasCamera: false,
+        hasScreenShare: false,
+      });
+      console.error('[Voice] Failed to toggle screen share:', error);
+      Alert.alert('Lỗi chia sẻ màn hình', 'Không thể bật/tắt chia sẻ màn hình lúc này.');
+    }
+  }, [
+    channelIdNum,
+    isCameraOn,
+    isJoined,
+    isScreenSharing,
+    serverIdNum,
+    updateParticipant,
+    userId,
+    clearScreenShareActivationTimeout,
+  ]);
+
+  const videoParticipants = participants.filter(
+    (participant) => Boolean(participant.hasCamera || participant.hasScreenShare)
+  );
   const featuredParticipant =
     videoParticipants.find((participant) => participant.userId === pinnedVideoUserId) ||
     videoParticipants[0];
@@ -801,7 +1432,7 @@ export default function VoiceRoomScreen() {
     : participants;
   const localParticipant = participants.find((participant) => participant.userId === userId);
   const remoteVideoParticipants = listParticipants.filter(
-    (participant) => participant.userId !== userId && participant.hasCamera
+    (participant) => participant.userId !== userId && (participant.hasCamera || participant.hasScreenShare)
   );
 
   const pipPanResponder = useRef(
@@ -818,11 +1449,11 @@ export default function VoiceRoomScreen() {
       }),
       onPanResponderRelease: () => {
         pipPosition.flattenOffset();
-        pipOffset.current = pipPosition.__getValue();
+        pipOffset.current = (pipPosition as any).__getValue();
       },
       onPanResponderTerminate: () => {
         pipPosition.flattenOffset();
-        pipOffset.current = pipPosition.__getValue();
+        pipOffset.current = (pipPosition as any).__getValue();
       },
     })
   ).current;
@@ -926,8 +1557,9 @@ export default function VoiceRoomScreen() {
                   key={featuredParticipant.userId}
                   state={featuredParticipant}
                   isSpeaking={speakingUsers.has(featuredParticipant.userId)}
-                  hasVideo={Boolean(featuredParticipant.hasCamera)}
-                  remoteUid={remoteUidMap[featuredParticipant.userId]}
+                  hasVideo={Boolean(featuredParticipant.hasCamera || featuredParticipant.hasScreenShare)}
+                  videoSourceType={getParticipantVideoSourceType(featuredParticipant)}
+                  remoteUid={getParticipantVideoUid(featuredParticipant)}
                   isLocal={featuredParticipant.userId === userId}
                   variant="featured"
                   isPinned={Boolean(pinnedVideoUserId)}
@@ -948,8 +1580,9 @@ export default function VoiceRoomScreen() {
                       key={`pip-${userId}`}
                       state={localParticipant}
                       isSpeaking={speakingUsers.has(userId)}
-                      hasVideo={Boolean(localParticipant.hasCamera ?? isCameraOn)}
-                      remoteUid={remoteUidMap[userId]}
+                      hasVideo={Boolean((localParticipant.hasCamera ?? isCameraOn) || (localParticipant.hasScreenShare ?? isScreenSharing))}
+                      videoSourceType={getParticipantVideoSourceType(localParticipant)}
+                      remoteUid={getParticipantVideoUid(localParticipant)}
                       isLocal
                       variant="pip"
                     />
@@ -963,8 +1596,9 @@ export default function VoiceRoomScreen() {
                           key={`strip-${participant.userId}`}
                           state={participant}
                           isSpeaking={speakingUsers.has(participant.userId)}
-                          hasVideo={Boolean(participant.hasCamera)}
-                          remoteUid={remoteUidMap[participant.userId]}
+                          hasVideo={Boolean(participant.hasCamera || participant.hasScreenShare)}
+                          videoSourceType={getParticipantVideoSourceType(participant)}
+                          remoteUid={getParticipantVideoUid(participant)}
                           isLocal={participant.userId === userId}
                           variant="strip"
                           onPress={() =>
@@ -984,11 +1618,12 @@ export default function VoiceRoomScreen() {
                     key={p.userId}
                     state={p}
                     isSpeaking={speakingUsers.has(p.userId)}
-                    hasVideo={Boolean(p.hasCamera)}
-                    remoteUid={remoteUidMap[p.userId]}
+                    hasVideo={Boolean(p.hasCamera || p.hasScreenShare)}
+                    videoSourceType={getParticipantVideoSourceType(p)}
+                    remoteUid={getParticipantVideoUid(p)}
                     isLocal={p.userId === userId}
                     onPress={
-                      p.hasCamera
+                      p.hasCamera || p.hasScreenShare
                         ? () =>
                             setPinnedVideoUserId((prev) =>
                               prev === p.userId ? null : p.userId
@@ -1028,6 +1663,18 @@ export default function VoiceRoomScreen() {
             name={isCameraOn ? 'videocam' : 'videocam-off-outline'}
             size={24}
             color={isCameraOn ? '#fff' : '#b9bbbe'}
+          />
+        </TouchableOpacity>
+
+        {/* Screen share */}
+        <TouchableOpacity
+          style={[styles.controlBtn, isScreenSharing && styles.controlBtnActive]}
+          onPress={toggleScreenShare}
+        >
+          <Ionicons
+            name={isScreenSharing ? 'desktop' : 'desktop-outline'}
+            size={22}
+            color={isScreenSharing ? '#fff' : '#b9bbbe'}
           />
         </TouchableOpacity>
 
