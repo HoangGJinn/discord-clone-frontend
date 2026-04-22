@@ -5,6 +5,9 @@ import {
   getMyServers,
   joinServer,
   ServerResponse,
+  transferOwnership,
+  leaveServer,
+  deleteServer,
 } from '@/services/serverService';
 
 interface ServerState {
@@ -26,6 +29,9 @@ interface ServerActions {
   incrementChannelUnread: (serverId: number, channelId: number) => void;
   clearChannelUnread: (serverId: number, channelId: number) => void;
   clearError: () => void;
+  transferOwnership: (serverId: number, newOwnerId: number) => Promise<void>;
+  leaveCurrentServer: (serverId: number) => Promise<void>;
+  deleteCurrentServer: (serverId: number) => Promise<void>;
 }
 
 type ServerStore = ServerState & ServerActions;
@@ -188,5 +194,47 @@ export const useServerStore = create<ServerStore>((set, get) => ({
     }),
 
   clearError: () => set({ error: null }),
+
+  transferOwnership: async (serverId, newOwnerId) => {
+    set({ isLoadingServers: true, error: null });
+    try {
+      await transferOwnership(serverId, newOwnerId);
+      await get().fetchServers();
+    } catch (error) {
+      set({
+        isLoadingServers: false,
+        error: normalizeError(error, 'Failed to transfer ownership.'),
+      });
+      throw error;
+    }
+  },
+
+  leaveCurrentServer: async (serverId) => {
+    set({ isLoadingServers: true, error: null });
+    try {
+      await leaveServer(serverId);
+      await get().fetchServers();
+    } catch (error) {
+      set({
+        isLoadingServers: false,
+        error: normalizeError(error, 'Failed to leave server.'),
+      });
+      throw error;
+    }
+  },
+
+  deleteCurrentServer: async (serverId) => {
+    set({ isLoadingServers: true, error: null });
+    try {
+      await deleteServer(serverId);
+      await get().fetchServers();
+    } catch (error) {
+      set({
+        isLoadingServers: false,
+        error: normalizeError(error, 'Failed to delete server.'),
+      });
+      throw error;
+    }
+  },
 }));
 

@@ -108,6 +108,7 @@ export function UserAvatarWithActions({
   const closeSheet = () => {
     setIsVisible(false);
     setShowProfileDetails(false);
+    setFriendInfo(null);
   };
 
   const handleOpenMessage = async () => {

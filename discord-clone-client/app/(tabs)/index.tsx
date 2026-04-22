@@ -426,13 +426,11 @@ export default function HomeScreen() {
           onPress: async () => {
             setIsServerActionLoading(true);
             try {
-              await deleteServer(selectedServerForOptions.id);
-
+              await useServerStore.getState().deleteCurrentServer(selectedServerForOptions.id);
               setShowServerOptionsModal(false);
               setSelectedServerForOptions(null);
-              await fetchServers();
-            } catch {
-              Alert.alert('Error', 'Could not delete server.');
+            } catch (err: any) {
+              Alert.alert('Error', err?.message || 'Could not delete server.');
             } finally {
               setIsServerActionLoading(false);
             }
@@ -440,7 +438,7 @@ export default function HomeScreen() {
         },
       ],
     );
-  }, [fetchServers, selectedServerForOptions]);
+  }, [selectedServerForOptions]);
 
   const handlePickServerAvatar = useCallback(async () => {
     if (!selectedServerForOptions || isUpdatingServerIcon) {
@@ -532,12 +530,11 @@ export default function HomeScreen() {
           onPress: async () => {
             setIsServerActionLoading(true);
             try {
-              await leaveServer(selectedServerForOptions.id);
+              await useServerStore.getState().leaveCurrentServer(selectedServerForOptions.id);
               setShowServerOptionsModal(false);
               setSelectedServerForOptions(null);
-              await fetchServers();
-            } catch {
-              Alert.alert('Error', 'Could not leave server.');
+            } catch (err: any) {
+              Alert.alert('Cannot Leave', err?.message || 'Could not leave server.');
             } finally {
               setIsServerActionLoading(false);
             }
@@ -545,7 +542,7 @@ export default function HomeScreen() {
         },
       ],
     );
-  }, [fetchServers, selectedServerForOptions]);
+  }, [selectedServerForOptions]);
 
   const handleMarkServerAsReadFromOptions = useCallback(async () => {
     if (!selectedServerForOptions) return;
@@ -759,17 +756,14 @@ export default function HomeScreen() {
       if (isManager) {
         Alert.alert(
           `#${channel.name}`,
-          'Manage this channel.',
+          'Channel options',
           [
             readToggleAction,
             { text: 'Edit', onPress: () => openEditChannel(channel) },
-            {
-              text: 'Delete',
-              style: 'destructive',
-              onPress: () => handleDeleteChannel(channel),
-            },
+            { text: 'Delete', style: 'destructive', onPress: () => handleDeleteChannel(channel) },
             { text: 'Cancel', style: 'cancel' },
           ],
+          { cancelable: true },
         );
         return;
       }
@@ -778,6 +772,7 @@ export default function HomeScreen() {
         `#${channel.name}`,
         'Update read status for this channel.',
         [readToggleAction, { text: 'Cancel', style: 'cancel' }],
+        { cancelable: true },
       );
     },
     [
@@ -1095,6 +1090,17 @@ export default function HomeScreen() {
                   <Pressable style={styles.serverOptionButton} onPress={handleOpenRenameServer}>
                     <Ionicons name="pencil-outline" size={18} color={DiscordColors.textSecondary} />
                     <ThemedText style={styles.serverOptionText}>Rename Server</ThemedText>
+                  </Pressable>
+
+                  <Pressable
+                    style={[styles.serverOptionButton, styles.serverOptionDanger]}
+                    onPress={() => {
+                      void handleLeaveServerFromOptions();
+                    }}
+                    disabled={isServerActionLoading}
+                  >
+                    <Ionicons name="exit-outline" size={18} color={DiscordColors.red} />
+                    <ThemedText style={styles.serverOptionDangerText}>Leave Server</ThemedText>
                   </Pressable>
 
                   <Pressable

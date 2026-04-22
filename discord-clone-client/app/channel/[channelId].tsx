@@ -27,7 +27,7 @@ import { ChannelMessage } from '@/types/channel';
 import { DiscordColors, Spacing } from '@/constants/theme';
 import { isDifferentDay, formatDaySeparator } from '@/utils/formatTime';
 import socketService from '@/services/socketService';
-import { ChannelResponse, getChannelById, markChannelAsRead } from '@/services/serverService';
+import { ChannelResponse, getChannelById, markChannelAsRead, getServerMembers, ServerMemberResponse } from '@/services/serverService';
 import { MessageSearchPanel } from '@/components/MessageSearchPanel';
 
 // ─── Custom Hook: Encapsulates WebSocket subscription logic ──
@@ -89,6 +89,9 @@ export default function ChannelChatScreen() {
   const [emojiTargetMessageId, setEmojiTargetMessageId] = useState<string | null>(null);
   const [searchPanelVisible, setSearchPanelVisible] = useState(false);
 
+  const [myMemberStatus, setMyMemberStatus] = useState<ServerMemberResponse | null>(null);
+  const isTimedOut = !!myMemberStatus?.timeoutUntil && new Date(myMemberStatus.timeoutUntil) > new Date();
+
   // ── Load messages on mount ─────────────────────────────
   useEffect(() => {
     if (channelId) {
@@ -97,7 +100,7 @@ export default function ChannelChatScreen() {
     return () => {
       clearMessages();
     };
-  }, [channelId]);
+  }, [channelId, clearMessages, fetchMessages]);
 
   useEffect(() => {
     const loadChannel = async () => {
@@ -111,6 +114,15 @@ export default function ChannelChatScreen() {
         setChannelInfo(response);
         if (response?.serverId) {
           clearChannelUnread(response.serverId, Number(channelId));
+          
+          // Load my member status to check for timeout
+          try {
+            const members = await getServerMembers(response.serverId);
+            const myStatus = members.find(m => m.userId === Number(user?.id));
+            setMyMemberStatus(myStatus || null);
+          } catch (err) {
+            console.error('Failed to fetch server members for timeout check:', err);
+          }
         }
         await markChannelAsRead(Number(channelId));
       } catch {
@@ -119,7 +131,7 @@ export default function ChannelChatScreen() {
     };
 
     void loadChannel();
-  }, [channelId, clearChannelUnread]);
+  }, [channelId, clearChannelUnread, user?.id]);
 
   // ── Subscribe to real-time updates ─────────────────────
   useChannelWebSocket(channelId || '');
@@ -128,13 +140,17 @@ export default function ChannelChatScreen() {
   const handleSend = useCallback(
     (content: string, attachments?: ChannelMessage['attachments'], replyToId?: string) => {
       if (!channelId) return;
+      if (isTimedOut) {
+        Alert.alert('Timeout', 'You are currently timed out and cannot send messages.');
+        return;
+      }
       sendMessage(channelId, {
         content,
         attachments,
         replyToId,
       });
     },
-    [channelId, sendMessage],
+    [channelId, isTimedOut, sendMessage],
   );
 
   // ── Message long-press handler ─────────────────────────
@@ -484,8 +500,12 @@ export default function ChannelChatScreen() {
         ) : (
           <ChatInput
             onSend={handleSend}
-            placeholder={`Message in #${channelInfo?.name || 'channel'}`}
-            disabled={isSending}
+            placeholder={
+              isTimedOut 
+                ? "You are timed out" 
+                : `Message in #${channelInfo?.name || 'channel'}`
+            }
+            disabled={isSending || isTimedOut}
             replyToMessage={
               replyingToMessage
                 ? {

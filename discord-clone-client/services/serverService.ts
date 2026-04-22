@@ -30,6 +30,8 @@ export interface ServerMemberResponse {
   avatarEffectId?: string | null;
   bannerEffectId?: string | null;
   cardEffectId?: string | null;
+  isBanned?: boolean | null;
+  timeoutUntil?: string | null;
 }
 
 export interface CategoryResponse {
@@ -322,4 +324,33 @@ export const regenerateInviteCode = async (
   );
   return response.data.inviteCode;
 };
+
+export const transferOwnership = async (
+  serverId: number,
+  newOwnerId: number,
+): Promise<void> => {
+  await apiClient.post(`/servers/${serverId}/transfer-ownership`, null, {
+    params: { newOwnerId },
+  });
+};
+
+export const kickMember = async (serverId: number, targetUserId: number): Promise<void> => {
+  await apiClient.delete(`/servers/${serverId}/members/${targetUserId}/kick`);
+};
+
+export const banMember = async (serverId: number, targetUserId: number): Promise<void> => {
+  await apiClient.post(`/servers/${serverId}/members/${targetUserId}/ban`);
+};
+
+export const timeoutMember = async (serverId: number, targetUserId: number, minutes: number): Promise<void> => {
+  await apiClient.post(`/servers/${serverId}/members/${targetUserId}/timeout`, null, {
+    params: { minutes },
+  });
+};
+
+export const removeTimeout = async (serverId: number, targetUserId: number): Promise<void> => {
+  await apiClient.post(`/servers/${serverId}/members/${targetUserId}/remove-timeout`);
+};
+
+
 
