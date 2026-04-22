@@ -63,6 +63,7 @@ interface FriendState {
   cancelFriendRequest: (friendshipId: number) => Promise<void>;
   unfriend: (friendshipId: number) => Promise<void>;
   updateFriendStatus: (userId: number, newStatus: UserPresenceStatus) => void;
+  getFriendshipStatus: (userId: number) => Promise<UserSearchResult>;
 }
 
 const extractErrorMessage = (error: unknown, fallback = "Request failed"): string => {
@@ -291,5 +292,13 @@ export const useFriendStore = create<FriendState>((set, get) => ({
         return s;
       }),
     }));
+  },
+  getFriendshipStatus: async (userId) => {
+    try {
+      const resp = await apiClient.get<UserSearchResult>(`/friends/status/${userId}`);
+      return normalizeSearchUser(resp.data);
+    } catch (error) {
+      throw new Error(extractErrorMessage(error, "Failed to get friendship status"));
+    }
   },
 }));

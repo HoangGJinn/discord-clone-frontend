@@ -18,6 +18,7 @@ import { ThemedText } from './themed-text';
 import { DiscordColors, Spacing } from '@/constants/theme';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useDMStore } from '@/store/useDMStore';
+import { useFriendStore, UserSearchResult } from '@/store/useFriendStore';
 import { AVATAR_EFFECTS, BACKGROUND_EFFECTS, NAMEPLATE_EFFECTS } from '@/constants/profileEffects';
 
 export interface QuickActionUser {
@@ -64,6 +65,35 @@ export function UserAvatarWithActions({
   const [isVisible, setIsVisible] = useState(false);
   const [isLoadingDm, setIsLoadingDm] = useState(false);
   const [showProfileDetails, setShowProfileDetails] = useState(false);
+  const [friendInfo, setFriendInfo] = useState<UserSearchResult | null>(null);
+  const [isFriendLoading, setIsFriendLoading] = useState(false);
+
+  const {
+    getFriendshipStatus,
+    sendFriendRequest,
+    unfriend,
+    cancelFriendRequest,
+    acceptFriendRequest,
+  } = useFriendStore();
+
+  const fetchFriendship = async () => {
+    if (isSelf) return;
+    setIsFriendLoading(true);
+    try {
+      const info = await getFriendshipStatus(Number(user.id));
+      setFriendInfo(info);
+    } catch (err) {
+      console.error('Failed to fetch friendship status:', err);
+    } finally {
+      setIsFriendLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    if (isVisible && !isSelf) {
+      fetchFriendship();
+    }
+  }, [isVisible, isSelf]);
 
   const effectiveStatus = useMemo(() => {
     if (status) return status;
@@ -177,7 +207,7 @@ export function UserAvatarWithActions({
                 </TouchableOpacity>
               ) : null}
 
-              <TouchableOpacity
+                <TouchableOpacity
                 style={styles.actionButton}
                 onPress={() => setShowProfileDetails((prev) => !prev)}
               >
@@ -185,6 +215,112 @@ export function UserAvatarWithActions({
                 <ThemedText style={styles.secondaryButtonText}>Xem hồ sơ</ThemedText>
               </TouchableOpacity>
             </View>
+
+            {!isSelf && (
+              <View style={styles.actionsRow}>
+                {friendInfo?.friendshipStatus === 'ACCEPTED' ? (
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.dangerButton]}
+                    onPress={async () => {
+                      if (friendInfo.friendshipId) {
+                        setIsFriendLoading(true);
+                        try {
+                          await unfriend(friendInfo.friendshipId);
+                          await fetchFriendship();
+                        } finally {
+                          setIsFriendLoading(false);
+                        }
+                      }
+                    }}
+                    disabled={isFriendLoading}
+                  >
+                    {isFriendLoading ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <>
+                        <Ionicons name="person-remove-outline" size={18} color="#fff" />
+                        <ThemedText style={styles.primaryButtonText}>Hủy kết bạn</ThemedText>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                ) : friendInfo?.friendshipStatus === 'PENDING' ? (
+                  friendInfo.isSender ? (
+                    <TouchableOpacity
+                      style={styles.actionButton}
+                      onPress={async () => {
+                        if (friendInfo.friendshipId) {
+                          setIsFriendLoading(true);
+                          try {
+                            await cancelFriendRequest(friendInfo.friendshipId);
+                            await fetchFriendship();
+                          } finally {
+                            setIsFriendLoading(false);
+                          }
+                        }
+                      }}
+                      disabled={isFriendLoading}
+                    >
+                      {isFriendLoading ? (
+                        <ActivityIndicator size="small" color={DiscordColors.textPrimary} />
+                      ) : (
+                        <>
+                          <Ionicons name="close-circle-outline" size={18} color={DiscordColors.textPrimary} />
+                          <ThemedText style={styles.secondaryButtonText}>Hủy lời mời</ThemedText>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      style={[styles.actionButton, styles.primaryButton]}
+                      onPress={async () => {
+                        if (friendInfo.friendshipId) {
+                          setIsFriendLoading(true);
+                          try {
+                            await acceptFriendRequest(friendInfo.friendshipId);
+                            await fetchFriendship();
+                          } finally {
+                            setIsFriendLoading(false);
+                          }
+                        }
+                      }}
+                      disabled={isFriendLoading}
+                    >
+                      {isFriendLoading ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <>
+                          <Ionicons name="person-add-outline" size={18} color="#fff" />
+                          <ThemedText style={styles.primaryButtonText}>Chấp nhận kết bạn</ThemedText>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  )
+                ) : (
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.primaryButton]}
+                    onPress={async () => {
+                      setIsFriendLoading(true);
+                      try {
+                        await sendFriendRequest(Number(user.id));
+                        await fetchFriendship();
+                      } finally {
+                        setIsFriendLoading(false);
+                      }
+                    }}
+                    disabled={isFriendLoading}
+                  >
+                    {isFriendLoading ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <>
+                        <Ionicons name="person-add-outline" size={18} color="#fff" />
+                        <ThemedText style={styles.primaryButtonText}>Kết bạn</ThemedText>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
 
             {showProfileDetails ? (
               <View style={styles.profileCard}>
@@ -275,6 +411,9 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     backgroundColor: DiscordColors.blurple,
+  },
+  dangerButton: {
+    backgroundColor: DiscordColors.red,
   },
   primaryButtonText: {
     color: '#fff',

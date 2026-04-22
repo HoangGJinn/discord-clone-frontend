@@ -61,6 +61,7 @@ interface VoiceCallUIProps {
   remoteUserName?: string;
   remoteUserAvatar?: string;
   remoteUserId?: string;
+  remoteUserStatus?: string;
   remoteAvatarEffectId?: string;
   remoteBannerEffectId?: string;
   remoteCardEffectId?: string;
@@ -244,6 +245,7 @@ function VoiceCallUIInner({
   remoteUserName = 'Unknown',
   remoteUserAvatar,
   remoteUserId,
+  remoteUserStatus,
   remoteAvatarEffectId,
   remoteBannerEffectId,
   remoteCardEffectId,
@@ -504,6 +506,7 @@ function VoiceCallUIInner({
                         username: remoteUserName,
                         displayName: remoteUserName,
                         avatar: remoteUserAvatar,
+                        status: remoteUserStatus,
                         avatarEffectId: remoteAvatarEffectId,
                         bannerEffectId: remoteBannerEffectId,
                         cardEffectId: remoteCardEffectId,
@@ -556,6 +559,7 @@ function VoiceCallUIInner({
                           username: remoteUserName,
                           displayName: remoteUserName,
                           avatar: remoteUserAvatar,
+                          status: remoteUserStatus,
                           avatarEffectId: remoteAvatarEffectId,
                           bannerEffectId: remoteBannerEffectId,
                           cardEffectId: remoteCardEffectId,
@@ -682,6 +686,7 @@ function VoiceCallUIInner({
                         username: remoteUserName,
                         displayName: remoteUserName,
                         avatar: remoteUserAvatar,
+                        status: remoteUserStatus,
                         avatarEffectId: remoteAvatarEffectId,
                         bannerEffectId: remoteBannerEffectId,
                         cardEffectId: remoteCardEffectId,

@@ -24,6 +24,7 @@ import { EditMessageInput } from '@/components/EditMessageInput';
 import { MessageActionSheet } from '@/components/MessageActionSheet';
 import { EmojiPicker } from '@/components/EmojiPicker';
 import { VoiceCallUI } from '@/components/VoiceCallUI';
+import { MessageSearchPanel } from '@/components/MessageSearchPanel';
 import { useDMStore } from '@/store/useDMStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { DirectMessage, getOtherParticipant } from '@/types/dm';
@@ -95,6 +96,7 @@ export default function DMChatScreen() {
   const [voiceCallVisible, setVoiceCallVisible] = useState(false);
   const [callType, setCallType] = useState<'VOICE' | 'VIDEO'>('VOICE');
   const [shouldAutoStartCall, setShouldAutoStartCall] = useState(false);
+  const [searchPanelVisible, setSearchPanelVisible] = useState(false);
 
   // ── Find the other participant from conversations list ─
   const conversation = conversations.find((c) => c.id === conversationId);
@@ -519,12 +521,12 @@ export default function DMChatScreen() {
                 />
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={() => Alert.alert('Search', 'Search feature coming soon!')}
+                onPress={() => setSearchPanelVisible(true)}
                 style={styles.actionBtn}
               >
                 <Ionicons
                   name="search"
-                  size={24}
+                  size={22}
                   color={DiscordColors.textSecondary}
                 />
               </TouchableOpacity>
@@ -682,6 +684,7 @@ export default function DMChatScreen() {
         remoteUserName={otherUser?.displayName || otherUser?.username || 'Unknown'}
         remoteUserAvatar={otherUser?.avatar}
         remoteUserId={otherUser?.id}
+        remoteUserStatus={otherUser?.status}
         remoteAvatarEffectId={otherUser?.avatarEffectId}
         remoteBannerEffectId={otherUser?.bannerEffectId}
         remoteCardEffectId={otherUser?.cardEffectId}
@@ -698,6 +701,19 @@ export default function DMChatScreen() {
         handleToggleDeafen={handleToggleDeafen}
         handleToggleCamera={handleToggleCamera}
         handleSwitchCamera={handleSwitchCamera}
+      />
+
+      {/* Message Search Panel */}
+      <MessageSearchPanel
+        visible={searchPanelVisible}
+        mode="dm"
+        conversationId={conversationId || ''}
+        onClose={() => setSearchPanelVisible(false)}
+        onSelectResult={(messageId) => {
+          setSearchPanelVisible(false);
+          // Small delay để panel đóng trước khi scroll
+          setTimeout(() => scrollToMessageById(messageId), 300);
+        }}
       />
 
     </SafeAreaView>

@@ -28,6 +28,7 @@ import { DiscordColors, Spacing } from '@/constants/theme';
 import { isDifferentDay, formatDaySeparator } from '@/utils/formatTime';
 import socketService from '@/services/socketService';
 import { ChannelResponse, getChannelById, markChannelAsRead } from '@/services/serverService';
+import { MessageSearchPanel } from '@/components/MessageSearchPanel';
 
 // ─── Custom Hook: Encapsulates WebSocket subscription logic ──
 function useChannelWebSocket(channelId: string) {
@@ -86,6 +87,7 @@ export default function ChannelChatScreen() {
   const [replyingToMessage, setReplyingToMessage] = useState<ChannelMessage | null>(null);
   const [emojiPickerVisible, setEmojiPickerVisible] = useState(false);
   const [emojiTargetMessageId, setEmojiTargetMessageId] = useState<string | null>(null);
+  const [searchPanelVisible, setSearchPanelVisible] = useState(false);
 
   // ── Load messages on mount ─────────────────────────────
   useEffect(() => {
@@ -393,7 +395,7 @@ export default function ChannelChatScreen() {
 
         {/* Header Actions */}
         <View style={styles.headerActions}>
-          <Pressable style={styles.actionBtn}>
+          <Pressable style={styles.actionBtn} onPress={() => setSearchPanelVisible(true)}>
             <Ionicons
               name="search"
               size={20}
@@ -519,6 +521,18 @@ export default function ChannelChatScreen() {
           setEmojiTargetMessageId(null);
         }}
         onSelectEmoji={handleEmojiSelected}
+      />
+
+      {/* Message Search Panel */}
+      <MessageSearchPanel
+        visible={searchPanelVisible}
+        mode="channel"
+        channelId={channelId}
+        onClose={() => setSearchPanelVisible(false)}
+        onSelectResult={(messageId) => {
+          setSearchPanelVisible(false);
+          setTimeout(() => scrollToMessageById(messageId), 300);
+        }}
       />
     </SafeAreaView>
   );
