@@ -2,6 +2,7 @@ import apiClient from '@/api/client';
 import { Avatar } from '@/components/Avatar';
 import { EffectModal } from '@/components/profile/EffectModal';
 import { AVATAR_EFFECTS, BACKGROUND_EFFECTS, NAMEPLATE_EFFECTS } from '@/constants/profileEffects';
+import { useEffectStore, ProfileEffect } from '@/store/useEffectStore';
 import { ThemedText } from '@/components/themed-text';
 import { DiscordColors, Spacing } from '@/constants/theme';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -55,14 +56,19 @@ export default function EditProfileScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
+  const { fetchEffects, getEffectsByType, getEffectById } = useEffectStore();
+  const avatarEffects = getEffectsByType('AVATAR');
+  const bannerEffects = getEffectsByType('BANNER');
+  const cardEffects = getEffectsByType('CARD');
+
   const [selectedAvatarEffect, setSelectedAvatarEffect] = useState<any>(
-    user?.avatarEffectId ? AVATAR_EFFECTS.find((e) => e.id === user.avatarEffectId) || null : null
+    user?.avatarEffectId ? getEffectById(user.avatarEffectId) || AVATAR_EFFECTS.find((e) => String(e.id) === String(user.avatarEffectId)) || null : null
   );
   const [selectedBgEffect, setSelectedBgEffect] = useState<any>(
-    user?.bannerEffectId ? BACKGROUND_EFFECTS.find((e) => e.id === user.bannerEffectId) || null : null
+    user?.bannerEffectId ? getEffectById(user.bannerEffectId) || BACKGROUND_EFFECTS.find((e) => String(e.id) === String(user.bannerEffectId)) || null : null
   );
   const [selectedCardEffect, setSelectedCardEffect] = useState<any>(
-    user?.cardEffectId ? NAMEPLATE_EFFECTS.find((e) => e.id === user.cardEffectId) || null : null
+    user?.cardEffectId ? getEffectById(user.cardEffectId) || NAMEPLATE_EFFECTS.find((e) => String(e.id) === String(user.cardEffectId)) || null : null
   );
   const [effectModalType, setEffectModalType] = useState<'AVATAR' | 'BACKGROUND' | 'CARD' | null>(null);
   const isNitro = Boolean(user?.isPremium);
@@ -276,7 +282,7 @@ export default function EditProfileScreen() {
              <Image source={{ uri: PLACEHOLDER_BANNER }} style={styles.bannerImage} contentFit="cover" />
              {isNitro && selectedBgEffect && (
                <Image
-                 source={selectedBgEffect.uri}
+                 source={{ uri: selectedBgEffect.imageUrl || selectedBgEffect.uri }}
                  style={[styles.bannerImage, styles.bannerEffectImage, { position: 'absolute' }]}
                  contentFit="cover"
                />
@@ -292,7 +298,7 @@ export default function EditProfileScreen() {
                  status={previewStatus}
                />
                {isNitro && selectedAvatarEffect && (
-                 <Image source={selectedAvatarEffect.uri} style={styles.avatarEffectImage} pointerEvents="none" />
+                 <Image source={{ uri: selectedAvatarEffect.imageUrl || selectedAvatarEffect.uri }} style={styles.avatarEffectImage} pointerEvents="none" />
                )}
                <TouchableOpacity
                  style={styles.editAvatarBtn}
@@ -384,7 +390,7 @@ export default function EditProfileScreen() {
              >
                {selectedAvatarEffect ? (
                  <View style={styles.thumbnailWrapper}>
-                   <Image source={selectedAvatarEffect.uri} style={styles.effectThumbnail} contentFit="contain" />
+                   <Image source={{ uri: selectedAvatarEffect.imageUrl || selectedAvatarEffect.uri }} style={styles.effectThumbnail} contentFit="contain" />
                  </View>
                ) : (
                  <Ionicons name="close" size={24} color={DiscordColors.textSecondary} />
@@ -407,7 +413,7 @@ export default function EditProfileScreen() {
              >
                {selectedBgEffect ? (
                  <View style={styles.thumbnailWrapper}>
-                   <Image source={selectedBgEffect.uri} style={styles.effectThumbnail} contentFit="contain" />
+                   <Image source={{ uri: selectedBgEffect.imageUrl || selectedBgEffect.uri }} style={styles.effectThumbnail} contentFit="contain" />
                  </View>
                ) : (
                  <Ionicons name="close" size={24} color={DiscordColors.textSecondary} />
@@ -430,7 +436,7 @@ export default function EditProfileScreen() {
              >
                {selectedCardEffect ? (
                  <View style={styles.thumbnailWrapper}>
-                   <Image source={selectedCardEffect.uri} style={styles.effectThumbnail} contentFit="contain" />
+                   <Image source={{ uri: selectedCardEffect.imageUrl || selectedCardEffect.uri }} style={styles.effectThumbnail} contentFit="contain" />
                  </View>
                ) : (
                  <Ionicons name="close" size={24} color={DiscordColors.textSecondary} />
@@ -448,8 +454,8 @@ export default function EditProfileScreen() {
        <EffectModal
          visible={effectModalType === 'AVATAR'}
          title="Trang Trí Ảnh Đại Diện"
-         data={AVATAR_EFFECTS}
-         currentSelectedId={selectedAvatarEffect?.id}
+         data={avatarEffects.length > 0 ? avatarEffects.map(e => ({ id: String(e.id), name: e.name, uri: e.imageUrl })) : AVATAR_EFFECTS}
+         currentSelectedId={String(selectedAvatarEffect?.id || '')}
          onSelect={setSelectedAvatarEffect}
          canSelect={isNitro}
          lockHint="Bạn cần Nitro để sử dụng Trang trí ảnh đại diện."
@@ -459,8 +465,8 @@ export default function EditProfileScreen() {
        <EffectModal
          visible={effectModalType === 'BACKGROUND'}
          title="Hiệu Ứng Nền Bìa"
-         data={BACKGROUND_EFFECTS}
-         currentSelectedId={selectedBgEffect?.id}
+         data={bannerEffects.length > 0 ? bannerEffects.map(e => ({ id: String(e.id), name: e.name, uri: e.imageUrl })) : BACKGROUND_EFFECTS}
+         currentSelectedId={String(selectedBgEffect?.id || '')}
          onSelect={setSelectedBgEffect}
          canSelect={isNitro}
          lockHint="Bạn cần Nitro để sử dụng Hiệu ứng nền bìa."
@@ -470,8 +476,8 @@ export default function EditProfileScreen() {
        <EffectModal
          visible={effectModalType === 'CARD'}
          title="Hiệu Ứng Bảng Tên"
-         data={NAMEPLATE_EFFECTS}
-         currentSelectedId={selectedCardEffect?.id}
+         data={cardEffects.length > 0 ? cardEffects.map(e => ({ id: String(e.id), name: e.name, uri: e.imageUrl })) : NAMEPLATE_EFFECTS}
+         currentSelectedId={String(selectedCardEffect?.id || '')}
          onSelect={setSelectedCardEffect}
          canSelect={isNitro}
          lockHint="Bạn cần Nitro để sử dụng Hiệu ứng bảng tên."

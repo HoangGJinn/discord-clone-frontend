@@ -20,6 +20,7 @@ import { useAuthStore } from '@/store/useAuthStore';
 import { useDMStore } from '@/store/useDMStore';
 import { useFriendStore, UserSearchResult } from '@/store/useFriendStore';
 import { AVATAR_EFFECTS, BACKGROUND_EFFECTS, NAMEPLATE_EFFECTS } from '@/constants/profileEffects';
+import { useEffectStore } from '@/store/useEffectStore';
 
 export interface QuickActionUser {
   id: string | number;
@@ -102,8 +103,18 @@ export function UserAvatarWithActions({
 
   const displayName = user.displayName || user.username;
   const isSelf = String(currentUser?.id || '') === String(user.id);
-  const activeBgEffect = user.bannerEffectId ? BACKGROUND_EFFECTS.find(e => e.id === user.bannerEffectId) : null;
-  const activeNameplateEffect = user.cardEffectId ? NAMEPLATE_EFFECTS.find(e => e.id === user.cardEffectId) : null;
+  
+  const getEffectById = useEffectStore((state) => state.getEffectById);
+  
+  // Resolve Banner Effect
+  const dynamicBgEffect = user.bannerEffectId ? getEffectById(user.bannerEffectId) : null;
+  const staticBgEffect = user.bannerEffectId && !dynamicBgEffect ? BACKGROUND_EFFECTS.find(e => String(e.id) === String(user.bannerEffectId)) : null;
+  const activeBgEffectUri = dynamicBgEffect ? dynamicBgEffect.imageUrl : staticBgEffect?.uri;
+
+  // Resolve Nameplate (Card) Effect
+  const dynamicCardEffect = user.cardEffectId ? getEffectById(user.cardEffectId) : null;
+  const staticCardEffect = user.cardEffectId && !dynamicCardEffect ? NAMEPLATE_EFFECTS.find(e => String(e.id) === String(user.cardEffectId)) : null;
+  const activeCardEffectUri = dynamicCardEffect ? dynamicCardEffect.imageUrl : staticCardEffect?.uri;
 
   const closeSheet = () => {
     setIsVisible(false);
@@ -156,17 +167,17 @@ export function UserAvatarWithActions({
           <Pressable style={styles.backdrop} onPress={closeSheet} />
 
           <View style={styles.sheet}>
-            {activeBgEffect && (
+            {activeBgEffectUri && (
               <Image
-                source={activeBgEffect.uri}
+                source={activeBgEffectUri}
                 style={[StyleSheet.absoluteFill, { zIndex: -1, borderTopLeftRadius: 20, borderTopRightRadius: 20 }]}
                 pointerEvents="none"
                 contentFit="cover"
               />
             )}
-            {activeNameplateEffect && (
+            {activeCardEffectUri && (
               <Image
-                source={activeNameplateEffect.uri}
+                source={activeCardEffectUri}
                 style={[styles.nameplateImage, { zIndex: 1 }]}
                 pointerEvents="none"
                 contentFit="cover"

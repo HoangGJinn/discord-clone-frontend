@@ -15,6 +15,8 @@ class EffectsController extends ChangeNotifier {
   List<ProfileEffectModel> get effects => _effects;
 
   Future<void> loadEffects() async {
+    if (isLoading) return; // Ngăn chặn gọi trùng lặp
+    
     isLoading = true;
     error = null;
     notifyListeners();

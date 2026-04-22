@@ -1,6 +1,7 @@
 import apiClient from '@/api/client';
 import { Avatar } from '@/components/Avatar';
 import { BACKGROUND_EFFECTS, NAMEPLATE_EFFECTS } from '@/constants/profileEffects';
+import { useEffectStore } from '@/store/useEffectStore';
 import { Image } from 'expo-image';
 import { ThemedText } from '@/components/themed-text';
 import { DiscordColors, Spacing } from '@/constants/theme';
@@ -139,9 +140,11 @@ export default function ProfileScreen() {
 
   const currentStatus = normalizeStatus(user.status);
   const statusOption = STATUS_OPTIONS.find((option) => option.value === currentStatus) || STATUS_OPTIONS[0];
-  const activeBgEffect = isNitro && user.bannerEffectId
-    ? BACKGROUND_EFFECTS.find((e) => e.id === user.bannerEffectId)
-    : null;
+  
+  const getEffectById = useEffectStore((state) => state.getEffectById);
+  const dynamicBgEffect = isNitro && user.bannerEffectId ? getEffectById(user.bannerEffectId) : null;
+  const staticBgEffect = isNitro && user.bannerEffectId && !dynamicBgEffect ? BACKGROUND_EFFECTS.find((e) => String(e.id) === String(user.bannerEffectId)) : null;
+  const activeBgEffectUri = dynamicBgEffect ? dynamicBgEffect.imageUrl : staticBgEffect?.uri;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -157,9 +160,9 @@ export default function ProfileScreen() {
       >
         <View style={styles.banner}>
           <View style={[styles.bannerOverlay, { backgroundColor: avatarColor }]} />
-          {activeBgEffect && (
+          {activeBgEffectUri && (
             <Image
-              source={activeBgEffect.uri}
+              source={activeBgEffectUri}
               style={StyleSheet.absoluteFill}
               pointerEvents="none"
               contentFit="cover"

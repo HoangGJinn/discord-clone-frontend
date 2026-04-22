@@ -222,38 +222,49 @@ class _StatGrid extends StatelessWidget {
       return const Center(child: Text('Không có dữ liệu'));
     }
 
+    StatTrend _getTrend(double growth) {
+      if (growth > 0) return StatTrend.up;
+      if (growth < 0) return StatTrend.down;
+      return StatTrend.neutral;
+    }
+
+    String _formatTrend(double growth) {
+      final sign = growth > 0 ? '+' : '';
+      return '$sign${growth.toStringAsFixed(1)}%';
+    }
+
     final cards = [
       _StatData(
         label: 'TỔNG NGƯỜI DÙNG',
         value: stats.totalUsers.toString(),
         icon: Icons.people_alt_rounded,
         color: AppColors.blurple,
-        trend: StatTrend.up,
-        trendLabel: '+12%',
+        trend: _getTrend(stats.userGrowth),
+        trendLabel: _formatTrend(stats.userGrowth),
       ),
       _StatData(
         label: 'TỔNG SERVERS',
         value: stats.totalServers.toString(),
         icon: Icons.dns_rounded,
         color: AppColors.info,
-        trend: StatTrend.up,
-        trendLabel: '+8%',
+        trend: _getTrend(stats.serverGrowth),
+        trendLabel: _formatTrend(stats.serverGrowth),
       ),
       _StatData(
         label: 'TIN NHẮN HÔM NAY',
         value: stats.totalMessages.toString(),
         icon: Icons.chat_bubble_rounded,
         color: AppColors.success,
-        trend: StatTrend.neutral,
-        trendLabel: '~',
+        trend: _getTrend(stats.messageGrowth),
+        trendLabel: _formatTrend(stats.messageGrowth),
       ),
       _StatData(
         label: 'DOANH THU',
         value: _formatCurrency(stats.totalRevenue),
         icon: Icons.attach_money_rounded,
         color: AppColors.gold,
-        trend: StatTrend.up,
-        trendLabel: '+5%',
+        trend: _getTrend(stats.revenueGrowth),
+        trendLabel: _formatTrend(stats.revenueGrowth),
       ),
     ];
 

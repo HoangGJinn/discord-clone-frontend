@@ -8,6 +8,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useFriendStore } from '@/store/useFriendStore';
 import { useDMStore } from '@/store/useDMStore';
+import { useEffectStore } from '@/store/useEffectStore';
 import { useEffect } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { DiscordColors } from '@/constants/theme';
@@ -33,6 +34,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     void useAuthStore.getState().initialize();
+    void useEffectStore.getState().fetchEffects();
   }, []);
 
   useEffect(() => {

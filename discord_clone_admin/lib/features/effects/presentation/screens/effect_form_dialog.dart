@@ -20,6 +20,7 @@ class _EffectFormDialogState extends State<EffectFormDialog> {
   late final TextEditingController _imageController;
   late final TextEditingController _animationController;
   late final TextEditingController _priceController;
+  String _type = 'AVATAR';
   bool _isActive = true;
 
   @override
@@ -30,6 +31,7 @@ class _EffectFormDialogState extends State<EffectFormDialog> {
     _imageController = TextEditingController(text: widget.effect?.imageUrl ?? '');
     _animationController = TextEditingController(text: widget.effect?.animationUrl ?? '');
     _priceController = TextEditingController(text: widget.effect?.price.toString() ?? '0.0');
+    _type = widget.effect?.type ?? 'AVATAR';
     _isActive = widget.effect?.isActive ?? true;
   }
 
@@ -52,6 +54,7 @@ class _EffectFormDialogState extends State<EffectFormDialog> {
         imageUrl: _imageController.text.trim(),
         animationUrl: _animationController.text.trim(),
         price: double.tryParse(_priceController.text) ?? 0.0,
+        type: _type,
         isActive: _isActive,
       );
       widget.onSave(newEffect);
@@ -96,6 +99,25 @@ class _EffectFormDialogState extends State<EffectFormDialog> {
                     if (double.tryParse(val) == null) return 'Giá không hợp lệ';
                     return null;
                   },
+                ),
+                const SizedBox(height: 16),
+
+                DropdownButtonFormField<String>(
+                  value: _type,
+                  dropdownColor: AppColors.surface,
+                  style: const TextStyle(color: AppColors.textPrimary),
+                  decoration: const InputDecoration(
+                    labelText: 'Loại hiệu ứng',
+                    labelStyle: TextStyle(color: AppColors.textSecondary),
+                    enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: AppColors.border)),
+                    focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: AppColors.blurple)),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'AVATAR', child: Text('Trang trí Avatar')),
+                    DropdownMenuItem(value: 'BANNER', child: Text('Hiệu ứng Banner')),
+                    DropdownMenuItem(value: 'CARD', child: Text('Hiệu ứng Bảng tên')),
+                  ],
+                  onChanged: (val) => setState(() => _type = val!),
                 ),
                 const SizedBox(height: 16),
                 

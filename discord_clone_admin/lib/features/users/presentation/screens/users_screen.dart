@@ -480,23 +480,67 @@ class _UserTile extends StatelessWidget {
         children: [
           IconButton(
             icon: const Icon(Icons.block_rounded, size: 18, color: AppColors.danger),
+            tooltip: 'Cấm người dùng',
             onPressed: user.isActive
                 ? () async {
-                    await controller.banUser(user.userId, 'Banned from admin panel');
-                    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Đã cấm người dùng'), backgroundColor: AppColors.success),
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        backgroundColor: AppColors.cardBg,
+                        title: const Text('Xác nhận cấm?', style: TextStyle(color: AppColors.textPrimary)),
+                        content: Text('Bạn có chắc muốn cấm người dùng "${user.displayName}" (@${user.userName}) không?'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: const Text('Hủy', style: TextStyle(color: AppColors.textMuted)),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: const Text('Cấm', style: TextStyle(color: AppColors.danger)),
+                          ),
+                        ],
+                      ),
                     );
+
+                    if (confirm == true) {
+                      await controller.banUser(user.userId, 'Banned from admin panel');
+                      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Đã cấm người dùng'), backgroundColor: AppColors.success),
+                      );
+                    }
                   }
                 : null,
           ),
           IconButton(
             icon: const Icon(Icons.check_circle_outline_rounded, size: 18, color: AppColors.success),
+            tooltip: 'Bỏ cấm người dùng',
             onPressed: !user.isActive
                 ? () async {
-                    await controller.enableUser(user.userId);
-                    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Đã bỏ cấm người dùng'), backgroundColor: AppColors.success),
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        backgroundColor: AppColors.cardBg,
+                        title: const Text('Bỏ cấm?', style: TextStyle(color: AppColors.textPrimary)),
+                        content: Text('Bạn có chắc muốn bỏ cấm cho người dùng "${user.displayName}" không?'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: const Text('Hủy', style: TextStyle(color: AppColors.textMuted)),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: const Text('Bỏ cấm', style: TextStyle(color: AppColors.success)),
+                          ),
+                        ],
+                      ),
                     );
+
+                    if (confirm == true) {
+                      await controller.enableUser(user.userId);
+                      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Đã bỏ cấm người dùng'), backgroundColor: AppColors.success),
+                      );
+                    }
                   }
                 : null,
           ),

@@ -19,12 +19,23 @@ class _EffectsScreenState extends State<EffectsScreen> {
   void initState() {
     super.initState();
     _controller = EffectsController();
-    _loadEffects();
+    _controller.addListener(_onControllerChanged);
+    _controller.loadEffects();
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_onControllerChanged);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onControllerChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadEffects() async {
     await _controller.loadEffects();
-    if (mounted) setState(() {});
   }
 
   void _openFormDialog([ProfileEffectModel? effect]) {
@@ -224,6 +235,8 @@ class _EffectCard extends StatelessWidget {
                       child: Image.network(
                         effect.imageUrl!,
                         fit: BoxFit.contain,
+                        cacheWidth: 300, // Giới hạn bộ nhớ cache cho ảnh
+                        cacheHeight: 300,
                         errorBuilder: (context, error, stackTrace) => const Icon(Icons.image_not_supported, color: AppColors.textMuted, size: 32),
                       ),
                     )

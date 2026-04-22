@@ -43,7 +43,11 @@ class _ServersScreenState extends State<ServersScreen> with SingleTickerProvider
 
   Future<void> _loadServers() async {
     String? search = _searchController.text.isNotEmpty ? _searchController.text : null;
-    await _controller.loadServers(search: search);
+    bool? active;
+    if (_selectedFilter == 1) active = true;
+    if (_selectedFilter == 2) active = false;
+
+    await _controller.loadServers(search: search, active: active);
     if (mounted) setState(() {});
   }
 
@@ -351,44 +355,123 @@ class _ServerTile extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: AppColors.success.withOpacity(0.15),
+                  color: server.isBanned 
+                      ? AppColors.danger.withOpacity(0.15) 
+                      : AppColors.success.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(4),
                 ),
-                child: const Text('Hoạt động', style: TextStyle(color: AppColors.success, fontSize: 10)),
+                child: Text(
+                  server.isBanned ? 'Bị cấm' : 'Hoạt động', 
+                  style: TextStyle(
+                    color: server.isBanned ? AppColors.danger : AppColors.success, 
+                    fontSize: 10
+                  )
+                ),
               ),
             ),
           ),
         ],
       ),
-      trailing: IconButton(
-        icon: const Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.danger),
-        onPressed: () async {
-          final confirm = await showDialog<bool>(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              backgroundColor: AppColors.cardBg,
-              title: const Text('Xóa Server?', style: TextStyle(color: AppColors.textPrimary)),
-              content: Text('Bạn có chắc muốn xóa server "${server.name}" không? Hành động này không thể hoàn tác.', style: const TextStyle(color: AppColors.textSecondary)),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('Hủy', style: TextStyle(color: AppColors.textMuted)),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  child: const Text('Xóa', style: TextStyle(color: AppColors.danger)),
-                ),
-              ],
-            ),
-          );
-          
-          if (confirm == true) {
-            await controller.deleteServer(server.serverId);
-            if (context.mounted) {
-               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã xóa server')));
+      trailing: PopupMenuButton<String>(
+        icon: const Icon(Icons.more_vert_rounded, size: 18, color: AppColors.textSecondary),
+        color: AppColors.cardBg,
+        onSelected: (value) async {
+          if (value == 'delete') {
+            final confirm = await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                backgroundColor: AppColors.cardBg,
+                title: const Text('Xóa Server?', style: TextStyle(color: AppColors.textPrimary)),
+                content: Text('Bạn có chắc muốn xóa server "${server.name}" không? Hành động này không thể hoàn tác.', style: const TextStyle(color: AppColors.textSecondary)),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: const Text('Hủy', style: TextStyle(color: AppColors.textMuted)),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text('Xóa', style: TextStyle(color: AppColors.danger)),
+                  ),
+                ],
+              ),
+            );
+            
+            if (confirm == true) {
+              await controller.deleteServer(server.serverId);
+              if (context.mounted) {
+                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã xóa server')));
+              }
+            }
+          } else if (value == 'ban') {
+            final confirm = await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                backgroundColor: AppColors.cardBg,
+                title: const Text('Cấm Server?', style: TextStyle(color: AppColors.textPrimary)),
+                content: Text('Bạn có chắc muốn cấm server "${server.name}" không?'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: const Text('Hủy', style: TextStyle(color: AppColors.textMuted)),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text('Cấm', style: TextStyle(color: AppColors.danger)),
+                  ),
+                ],
+              ),
+            );
+            
+            if (confirm == true) {
+              await controller.banServer(server.serverId, "Banned by admin");
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã cấm server'), backgroundColor: AppColors.success));
+              }
+            }
+          } else if (value == 'unban') {
+            final confirm = await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                backgroundColor: AppColors.cardBg,
+                title: const Text('Bỏ cấm Server?', style: TextStyle(color: AppColors.textPrimary)),
+                content: Text('Bạn có chắc muốn bỏ cấm cho server "${server.name}" không?'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: const Text('Hủy', style: TextStyle(color: AppColors.textMuted)),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text('Bỏ cấm', style: TextStyle(color: AppColors.success)),
+                  ),
+                ],
+              ),
+            );
+
+            if (confirm == true) {
+              await controller.unbanServer(server.serverId);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã bỏ cấm server'), backgroundColor: AppColors.success));
+              }
             }
           }
         },
+        itemBuilder: (context) => [
+          if (!server.isBanned)
+            const PopupMenuItem(
+              value: 'ban',
+              child: Text('Cấm Server', style: TextStyle(color: AppColors.danger, fontSize: 13)),
+            )
+          else
+            const PopupMenuItem(
+              value: 'unban',
+              child: Text('Bỏ cấm Server', style: TextStyle(color: AppColors.success, fontSize: 13)),
+            ),
+          const PopupMenuItem(
+            value: 'delete',
+            child: Text('Xóa Server', style: TextStyle(color: AppColors.danger, fontSize: 13)),
+          ),
+        ],
       ),
     );
   }
