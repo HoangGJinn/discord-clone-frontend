@@ -17,7 +17,9 @@ class EffectsApiService {
     final token = await _getToken();
     final response = await _apiClient.get('/admin/effects', bearerToken: token);
     if (response is List) {
-      return response.map((e) => ProfileEffectModel.fromJson(e)).toList();
+      return response
+          .map<ProfileEffectModel>((e) => ProfileEffectModel.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
     }
     return [];
   }

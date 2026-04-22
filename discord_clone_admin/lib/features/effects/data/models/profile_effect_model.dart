@@ -8,6 +8,7 @@ class ProfileEffectModel extends ProfileEffect {
     super.imageUrl,
     super.animationUrl,
     required super.price,
+    super.type = 'AVATAR',
     required super.isActive,
     super.createdAt,
     super.updatedAt,
@@ -15,15 +16,16 @@ class ProfileEffectModel extends ProfileEffect {
 
   factory ProfileEffectModel.fromJson(Map<String, dynamic> json) {
     return ProfileEffectModel(
-      id: json['id'] as int,
-      name: json['name'] as String? ?? '',
-      description: json['description'] as String? ?? '',
-      imageUrl: json['imageUrl'] as String?,
-      animationUrl: json['animationUrl'] as String?,
+      id: (json['id'] as num?)?.toInt() ?? 0,
+      name: (json['name']?.toString()) ?? '',
+      description: (json['description']?.toString()) ?? '',
+      imageUrl: json['imageUrl']?.toString(),
+      animationUrl: json['animationUrl']?.toString(),
       price: (json['price'] as num?)?.toDouble() ?? 0.0,
-      isActive: json['isActive'] as bool? ?? false,
-      createdAt: json['createdAt'] != null ? DateTime.parse(json['createdAt']) : null,
-      updatedAt: json['updatedAt'] != null ? DateTime.parse(json['updatedAt']) : null,
+      type: (json['type']?.toString()) ?? 'AVATAR',
+      isActive: (json['isActive'] ?? json['active']) == true,
+      createdAt: json['createdAt'] != null ? DateTime.tryParse(json['createdAt'].toString()) : null,
+      updatedAt: json['updatedAt'] != null ? DateTime.tryParse(json['updatedAt'].toString()) : null,
     );
   }
 
@@ -35,6 +37,7 @@ class ProfileEffectModel extends ProfileEffect {
       'imageUrl': imageUrl,
       'animationUrl': animationUrl,
       'price': price,
+      'type': type,
       'isActive': isActive,
     };
   }

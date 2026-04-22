@@ -36,21 +36,32 @@ apiClient.interceptors.request.use(
   }
 );
 
-// Response Interceptor: Bắt lỗi 401 để xử lý đăng xuất
+// Response Interceptor: Bắt lỗi 401/403 để xử lý đăng xuất
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
-    if (error.response?.status === 401) {
-      console.warn("⚠️ Token hết hạn hoặc không hợp lệ (401). Đang dọn dẹp...");
+    const status = error.response?.status;
+    const message = error.response?.data?.message || "";
+
+    // 401: Token hết hạn
+    // 403 + message "vô hiệu hóa": Tài khoản bị khóa
+    if (status === 401 || (status === 403 && (message.includes("vô hiệu hóa") || message.includes("vô hiệu hoá")))) {
+      if (status === 401) {
+        console.warn("⚠️ Token hết hạn hoặc không hợp lệ (401). Đang dọn dẹp...");
+      } else {
+        console.warn("🚫 Tài khoản bị vô hiệu hóa (403). Đang buộc đăng xuất...");
+      }
+
       try {
         const { useAuthStore } = require("@/store/useAuthStore");
-        // Dùng getState() của Zustand để gọi trực tiếp ngoài React component
         const logout = useAuthStore.getState().logout;
         if (logout) {
           await logout();
         } else {
           await AsyncStorage.multiRemove(["auth_token", "auth_user"]);
         }
+        
+        // Có thể thêm thông báo Toast ở đây nếu cần
       } catch (removeError) {
         console.error("❌ Lỗi khi tự động đăng xuất:", removeError);
       }

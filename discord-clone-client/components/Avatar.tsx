@@ -4,6 +4,7 @@ import { Image } from 'expo-image';
 import { ThemedText } from './themed-text';
 import { DiscordColors } from '@/constants/theme';
 import { AVATAR_EFFECTS } from '@/constants/profileEffects';
+import { useEffectStore } from '@/store/useEffectStore';
 
 interface AvatarProps {
   uri?: string;
@@ -11,7 +12,7 @@ interface AvatarProps {
   size?: number;
   status?: 'ONLINE' | 'IDLE' | 'DND' | 'OFFLINE';
   style?: ViewStyle;
-  avatarEffectId?: string | null;
+  avatarEffectId?: string | number | null;
 }
 
 const statusColors = {
@@ -22,12 +23,17 @@ const statusColors = {
 };
 
 export const Avatar: React.FC<AvatarProps> = ({ uri, name, size = 40, status, style, avatarEffectId }) => {
+  const getEffectById = useEffectStore((state) => state.getEffectById);
   const safeName = typeof name === 'string' ? name.trim() : '';
   const initials = safeName ? safeName.charAt(0).toUpperCase() : '?';
   const indicatorSize = size / 3.2;
   const indicatorBorderSize = size / 12;
 
-  const activeEffect = avatarEffectId ? AVATAR_EFFECTS.find((e) => e.id === avatarEffectId) : null;
+  // Resolve effect: try dynamic store first, then fallback to static constants
+  const dynamicEffect = getEffectById(avatarEffectId);
+  const staticEffect = !dynamicEffect && avatarEffectId ? AVATAR_EFFECTS.find((e) => String(e.id) === String(avatarEffectId)) : null;
+  
+  const activeEffectUri = dynamicEffect ? dynamicEffect.imageUrl : staticEffect?.uri;
   const effectSize = size * 1.4;
   const effectOffset = -(effectSize - size) / 2;
 
@@ -43,9 +49,9 @@ export const Avatar: React.FC<AvatarProps> = ({ uri, name, size = 40, status, st
         )}
       </View>
       
-      {activeEffect && (
+      {activeEffectUri && (
         <Image
-          source={activeEffect.uri}
+          source={activeEffectUri}
           style={[
             styles.effectImage,
             {

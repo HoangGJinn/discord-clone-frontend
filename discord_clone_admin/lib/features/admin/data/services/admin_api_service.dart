@@ -51,7 +51,7 @@ class AdminApiService {
     if (active != null) queryParams['active'] = active.toString();
 
     // Need to implement query param support in ApiClient get method
-    return await _apiClient.get('/admin/users', bearerToken: token);
+    return await _apiClient.get('/admin/users', bearerToken: token, queryParameters: queryParams);
   }
 
   Future<void> disableUser(int userId) async {
@@ -78,6 +78,7 @@ class AdminApiService {
 
   Future<Map<String, dynamic>> getAllServers({
     String? search,
+    bool? active,
     int page = 0,
     int size = 20,
   }) async {
@@ -87,13 +88,24 @@ class AdminApiService {
       'size': size.toString(),
     };
     if (search != null && search.isNotEmpty) queryParams['search'] = search;
+    if (active != null) queryParams['active'] = active.toString();
 
-    return await _apiClient.get('/admin/servers', bearerToken: token);
+    return await _apiClient.get('/admin/servers', bearerToken: token, queryParameters: queryParams);
   }
 
   Future<void> deleteServer(int serverId) async {
     final token = await _getToken();
     await _apiClient.delete('/admin/servers/$serverId', bearerToken: token);
+  }
+
+  Future<void> banServer(int serverId, {String reason = "Violated terms"}) async {
+    final token = await _getToken();
+    await _apiClient.put('/admin/servers/$serverId/ban?reason=$reason', {}, bearerToken: token);
+  }
+
+  Future<void> unbanServer(int serverId) async {
+    final token = await _getToken();
+    await _apiClient.put('/admin/servers/$serverId/unban', {}, bearerToken: token);
   }
 
   // ===== REPORTED MESSAGES =====

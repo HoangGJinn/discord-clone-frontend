@@ -1,9 +1,22 @@
-import {
-  ChannelProfileType,
-  ClientRoleType,
-  createAgoraRtcEngine,
-  IRtcEngine,
-} from 'react-native-agora';
+import { Platform } from 'react-native';
+import type { IRtcEngine, RtcConnection } from 'react-native-agora';
+
+let agora: any = null;
+if (Platform.OS !== 'web') {
+  try {
+    agora = require('react-native-agora');
+  } catch (e) {
+    console.warn('react-native-agora not available:', e);
+  }
+}
+
+// Extract types and constants safely
+const ChannelProfileType = agora?.ChannelProfileType ?? {};
+const ClientRoleType = agora?.ClientRoleType ?? {};
+const createAgoraRtcEngine = agora?.createAgoraRtcEngine ?? (() => {
+  console.warn('Agora engine not available on this platform');
+  return null;
+});
 
 type UID = number | string;
 
@@ -53,8 +66,13 @@ class AgoraService {
     }
 
     try {
-      this.engine = createAgoraRtcEngine();
-      const initResult = this.engine.initialize({
+      const engine = createAgoraRtcEngine();
+      if (!engine) {
+        throw new Error('Agora engine is not available on this platform');
+      }
+      this.engine = engine;
+
+      const initResult = engine.initialize({
         appId,
         channelProfile: ChannelProfileType.ChannelProfileCommunication,
       });
@@ -68,7 +86,7 @@ class AgoraService {
       // Set up event listeners
       this.setupEventListeners();
       
-      return this.engine;
+      return engine;
     } catch (error) {
       console.error('[AgoraService] Failed to create engine:', error);
       throw error;
@@ -79,22 +97,23 @@ class AgoraService {
    * Thiết lập event listeners
    */
   private setupEventListeners(): void {
-    if (!this.engine) return;
+    const engine = this.engine;
+    if (!engine) return;
 
     // User joined
-    this.engine.addListener('onUserJoined', (connection, remoteUid) => {
+    engine.addListener('onUserJoined', (connection: RtcConnection, remoteUid: number) => {
       this.onUserJoinedCallback?.(remoteUid);
     });
 
     // User left
-    this.engine.addListener('onUserOffline', (connection, remoteUid, reason) => {
+    engine.addListener('onUserOffline', (connection: RtcConnection, remoteUid: number, reason: number) => {
       this.onRemoteVideoRemovedCallback?.(remoteUid);
       this.onRemoteAudioRemovedCallback?.(remoteUid);
       this.onUserLeftCallback?.(remoteUid);
     });
 
     // Remote video state changed
-    this.engine.addListener('onRemoteVideoStateChanged', (connection, remoteUid, state, reason, elapsed) => {
+    engine.addListener('onRemoteVideoStateChanged', (connection: RtcConnection, remoteUid: number, state: number, reason: number, elapsed: number) => {
       if (state === 1) { // REMOTE_VIDEO_STATE_DECODING = 1
         this.onRemoteVideoReadyCallback?.(remoteUid);
       } else if (state === 0) { // REMOTE_VIDEO_STATE_STOPPED = 0
@@ -103,7 +122,7 @@ class AgoraService {
     });
 
     // Remote audio state changed
-    this.engine.addListener('onRemoteAudioStateChanged', (connection, remoteUid, state, reason, elapsed) => {
+    engine.addListener('onRemoteAudioStateChanged', (connection: RtcConnection, remoteUid: number, state: number, reason: number, elapsed: number) => {
       if (state === 3) { // REMOTE_AUDIO_STATE_DECODING = 3
         this.onRemoteAudioReadyCallback?.(remoteUid);
       } else if (state === 0) { // REMOTE_AUDIO_STATE_STOPPED = 0
@@ -112,18 +131,18 @@ class AgoraService {
     });
 
     // Connection state changed
-    this.engine.addListener('onConnectionStateChanged', (connection, state, reason) => {
+    engine.addListener('onConnectionStateChanged', (connection: RtcConnection, state: number, reason: number) => {
       this.onConnectionStateChangeCallback?.(state);
     });
 
     // Error
-    this.engine.addListener('onError', (errorCode) => {
+    engine.addListener('onError', (errorCode: number) => {
       console.error('[AgoraService] Error code:', errorCode);
       this.onErrorCallback?.(new Error(`Agora error code: ${errorCode}`));
     });
 
     // Audio volume indication for speaking indicator.
-    this.engine.addListener('onAudioVolumeIndication', (...args: any[]) => {
+    engine.addListener('onAudioVolumeIndication', (...args: any[]) => {
       try {
         const speakers: any[] = Array.isArray(args[0])
           ? args[0]
@@ -178,7 +197,8 @@ class AgoraService {
       await this.createClient(appId);
     }
 
-    if (!this.engine) {
+    const engine = this.engine;
+    if (!engine) {
       throw new Error('Failed to create Agora engine');
     }
 
@@ -190,16 +210,16 @@ class AgoraService {
 
     try {
       // Enable video if needed
-      await this.engine.enableVideo();
-      await this.engine.enableAudio();
-      if (typeof this.engine.setDefaultAudioRouteToSpeakerphone === 'function') {
-        this.engine.setDefaultAudioRouteToSpeakerphone(true);
+      await engine.enableVideo();
+      await engine.enableAudio();
+      if (typeof engine.setDefaultAudioRouteToSpeakerphone === 'function') {
+        engine.setDefaultAudioRouteToSpeakerphone(true);
       }
-      if (typeof this.engine.setEnableSpeakerphone === 'function') {
-        await this.engine.setEnableSpeakerphone(true);
+      if (typeof engine.setEnableSpeakerphone === 'function') {
+        await engine.setEnableSpeakerphone(true);
       }
-      if (typeof this.engine.muteAllRemoteAudioStreams === 'function') {
-        await this.engine.muteAllRemoteAudioStreams(false);
+      if (typeof engine.muteAllRemoteAudioStreams === 'function') {
+        await engine.muteAllRemoteAudioStreams(false);
       }
       
       // Join the channel
@@ -212,9 +232,9 @@ class AgoraService {
       };
 
       let joinResult: number;
-      if (typeof this.engine.joinChannelWithUserAccount === 'function') {
+      if (typeof engine.joinChannelWithUserAccount === 'function') {
         // Backend DM call token is created with userAccount. Must join by userAccount.
-        joinResult = this.engine.joinChannelWithUserAccount(
+        joinResult = engine.joinChannelWithUserAccount(
           normalizedToken,
           channelName,
           userAccount,
@@ -222,7 +242,7 @@ class AgoraService {
         );
       } else {
         // Fallback for SDK variants without userAccount API.
-        joinResult = this.engine.joinChannel(
+        joinResult = engine.joinChannel(
           normalizedToken,
           channelName,
           numericUid,
@@ -237,14 +257,14 @@ class AgoraService {
       this.isInChannelFlag = true;
       this.localUidHint = Number.isFinite(Number(numericUid)) ? Number(numericUid) : null;
       this.localUserAccount = userAccount;
-      this.engine.updateChannelMediaOptions?.({
+      engine.updateChannelMediaOptions?.({
         publishMicrophoneTrack: true,
         publishCameraTrack: false,
         autoSubscribeAudio: true,
       });
-      if (typeof this.engine.enableAudioVolumeIndication === 'function') {
+      if (typeof engine.enableAudioVolumeIndication === 'function') {
         // 200ms interval gives responsive speaking indicator.
-        this.engine.enableAudioVolumeIndication(200, 3, true);
+        engine.enableAudioVolumeIndication(200, 3, true);
       }
       return numericUid;
     } catch (error) {
@@ -257,34 +277,35 @@ class AgoraService {
    * Tạo và publish local tracks (audio + optional video)
    */
   async startLocalTracks(enableVideo: boolean = false): Promise<void> {
-    if (!this.engine) {
+    const engine = this.engine;
+    if (!engine) {
       throw new Error('Engine not initialized');
     }
 
     try {
       // Start local audio stream
-      await this.engine.enableLocalAudio(true);
-      await this.engine.muteLocalAudioStream(false);
-      this.engine.updateChannelMediaOptions?.({
+      await engine.enableLocalAudio(true);
+      await engine.muteLocalAudioStream(false);
+      engine.updateChannelMediaOptions?.({
         clientRoleType: ClientRoleType.ClientRoleBroadcaster,
         publishMicrophoneTrack: true,
         publishCameraTrack: enableVideo,
         autoSubscribeAudio: true,
         autoSubscribeVideo: true,
       });
-      if (typeof this.engine.adjustRecordingSignalVolume === 'function') {
-        await this.engine.adjustRecordingSignalVolume(100);
+      if (typeof engine.adjustRecordingSignalVolume === 'function') {
+        await engine.adjustRecordingSignalVolume(100);
       }
       this.localAudioEnabled = true;
 
       // Start local video stream if enabled
       if (enableVideo) {
-        await this.engine.enableVideo();
-        await this.engine.enableLocalVideo(true);
-        if (typeof this.engine.muteLocalVideoStream === 'function') {
-          await this.engine.muteLocalVideoStream(false);
+        await engine.enableVideo();
+        await engine.enableLocalVideo(true);
+        if (typeof engine.muteLocalVideoStream === 'function') {
+          await engine.muteLocalVideoStream(false);
         }
-        await this.engine.startPreview();
+        await engine.startPreview();
         this.localVideoEnabled = true;
         this.onLocalVideoReadyCallback?.(0); // 0 for local user
       }
@@ -300,20 +321,21 @@ class AgoraService {
    */
   async leave(): Promise<void> {
     try {
-      if (this.engine) {
+      const engine = this.engine;
+      if (engine) {
         // Stop preview
         if (this.localVideoEnabled) {
-          await this.engine.stopPreview();
-          await this.engine.enableLocalVideo(false);
+          await engine.stopPreview();
+          await engine.enableLocalVideo(false);
         }
 
         // Stop local audio
         if (this.localAudioEnabled) {
-          await this.engine.enableLocalAudio(false);
+          await engine.enableLocalAudio(false);
         }
 
         // Leave channel
-        this.engine.leaveChannel();
+        engine.leaveChannel();
       }
 
       this.isInChannelFlag = false;
@@ -330,10 +352,11 @@ class AgoraService {
    * Toggle microphone mute
    */
   async setAudioMuted(muted: boolean): Promise<void> {
-    if (this.engine) {
+    const engine = this.engine;
+    if (engine) {
       try {
-        await this.engine.muteLocalAudioStream(muted);
-        this.engine.updateChannelMediaOptions?.({
+        await engine.muteLocalAudioStream(muted);
+        engine.updateChannelMediaOptions?.({
           clientRoleType: ClientRoleType.ClientRoleBroadcaster,
           publishMicrophoneTrack: !muted,
           publishCameraTrack: this.localVideoEnabled,
@@ -351,9 +374,10 @@ class AgoraService {
    * Used for "deafen" (self cannot hear others).
    */
   async setRemoteAudioPlaybackMuted(muted: boolean): Promise<void> {
-    if (this.engine && typeof this.engine.muteAllRemoteAudioStreams === 'function') {
+    const engine = this.engine;
+    if (engine && typeof engine.muteAllRemoteAudioStreams === 'function') {
       try {
-        await this.engine.muteAllRemoteAudioStreams(muted);
+        await engine.muteAllRemoteAudioStreams(muted);
       } catch (error) {
         console.error('[AgoraService] Failed to toggle remote audio playback:', error);
       }
@@ -364,22 +388,23 @@ class AgoraService {
    * Toggle camera
    */
   async setVideoEnabled(enabled: boolean): Promise<void> {
-    if (this.engine) {
+    const engine = this.engine;
+    if (engine) {
       try {
-        await this.engine.enableVideo();
-        await this.engine.enableLocalVideo(enabled);
+        await engine.enableVideo();
+        await engine.enableLocalVideo(enabled);
         if (enabled) {
-          if (typeof this.engine.muteLocalVideoStream === 'function') {
-            await this.engine.muteLocalVideoStream(false);
+          if (typeof engine.muteLocalVideoStream === 'function') {
+            await engine.muteLocalVideoStream(false);
           }
-          await this.engine.startPreview();
+          await engine.startPreview();
         } else {
-          if (typeof this.engine.muteLocalVideoStream === 'function') {
-            await this.engine.muteLocalVideoStream(true);
+          if (typeof engine.muteLocalVideoStream === 'function') {
+            await engine.muteLocalVideoStream(true);
           }
-          await this.engine.stopPreview();
+          await engine.stopPreview();
         }
-        this.engine.updateChannelMediaOptions?.({
+        engine.updateChannelMediaOptions?.({
           clientRoleType: ClientRoleType.ClientRoleBroadcaster,
           publishMicrophoneTrack: this.localAudioEnabled,
           publishCameraTrack: enabled,
@@ -397,9 +422,10 @@ class AgoraService {
    * Enable/disable audio track
    */
   async enableAudio(enabled: boolean): Promise<void> {
-    if (this.engine) {
+    const engine = this.engine;
+    if (engine) {
       try {
-        await this.engine.enableLocalAudio(enabled);
+        await engine.enableLocalAudio(enabled);
         this.localAudioEnabled = enabled;
       } catch (error) {
         console.error('[AgoraService] Failed to enable audio:', error);
@@ -411,9 +437,10 @@ class AgoraService {
    * Enable/disable video track
    */
   async enableVideo(enabled: boolean): Promise<void> {
-    if (this.engine) {
+    const engine = this.engine;
+    if (engine) {
       try {
-        await this.engine.enableLocalVideo(enabled);
+        await engine.enableLocalVideo(enabled);
         this.localVideoEnabled = enabled;
       } catch (error) {
         console.error('[AgoraService] Failed to enable video:', error);
@@ -425,9 +452,10 @@ class AgoraService {
    * Thay đổi camera (front/back)
    */
   async switchCamera(): Promise<void> {
-    if (this.engine) {
+    const engine = this.engine;
+    if (engine) {
       try {
-        await this.engine.switchCamera();
+        await engine.switchCamera();
       } catch (error) {
         console.error('[AgoraService] Failed to switch camera:', error);
       }

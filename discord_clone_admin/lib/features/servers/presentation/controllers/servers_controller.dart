@@ -11,6 +11,7 @@ class AdminServerSummary {
   final int memberCount;
   final int channelCount;
   final DateTime createdAt;
+  final bool isBanned;
 
   AdminServerSummary({
     required this.serverId,
@@ -22,6 +23,7 @@ class AdminServerSummary {
     required this.memberCount,
     required this.channelCount,
     required this.createdAt,
+    required this.isBanned,
   });
 
   factory AdminServerSummary.fromJson(Map<String, dynamic> json) {
@@ -35,6 +37,7 @@ class AdminServerSummary {
       memberCount: json['memberCount'] as int? ?? 0,
       channelCount: json['channelCount'] as int? ?? 0,
       createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? '') ?? DateTime.now(),
+      isBanned: json['banned'] as bool? ?? json['isBanned'] as bool? ?? false,
     );
   }
 }
@@ -53,13 +56,13 @@ class ServersController extends ChangeNotifier {
   List<AdminServerSummary> get servers => _servers;
   int get totalServers => _totalServers;
 
-  Future<void> loadServers({String? search}) async {
+  Future<void> loadServers({String? search, bool? active}) async {
     isLoading = true;
     error = null;
     notifyListeners();
 
     try {
-      final response = await _apiService.getAllServers(search: search);
+      final response = await _apiService.getAllServers(search: search, active: active);
       final content = response['content'] as List?;
       _totalServers = response['totalElements'] as int? ?? 0;
       if (content != null) {
@@ -82,6 +85,58 @@ class ServersController extends ChangeNotifier {
       _servers.removeWhere((s) => s.serverId == serverId);
       _totalServers--;
       notifyListeners();
+    } catch (e) {
+      error = e.toString();
+      notifyListeners();
+    }
+  }
+
+  Future<void> banServer(int serverId, String reason) async {
+    try {
+      await _apiService.banServer(serverId, reason: reason);
+      final index = _servers.indexWhere((s) => s.serverId == serverId);
+      if (index != -1) {
+        final old = _servers[index];
+        _servers[index] = AdminServerSummary(
+          serverId: old.serverId,
+          name: old.name,
+          description: old.description,
+          iconUrl: old.iconUrl,
+          ownerId: old.ownerId,
+          ownerName: old.ownerName,
+          memberCount: old.memberCount,
+          channelCount: old.channelCount,
+          createdAt: old.createdAt,
+          isBanned: true,
+        );
+        notifyListeners();
+      }
+    } catch (e) {
+      error = e.toString();
+      notifyListeners();
+    }
+  }
+
+  Future<void> unbanServer(int serverId) async {
+    try {
+      await _apiService.unbanServer(serverId);
+      final index = _servers.indexWhere((s) => s.serverId == serverId);
+      if (index != -1) {
+        final old = _servers[index];
+        _servers[index] = AdminServerSummary(
+          serverId: old.serverId,
+          name: old.name,
+          description: old.description,
+          iconUrl: old.iconUrl,
+          ownerId: old.ownerId,
+          ownerName: old.ownerName,
+          memberCount: old.memberCount,
+          channelCount: old.channelCount,
+          createdAt: old.createdAt,
+          isBanned: false,
+        );
+        notifyListeners();
+      }
     } catch (e) {
       error = e.toString();
       notifyListeners();
