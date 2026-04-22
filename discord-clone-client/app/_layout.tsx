@@ -13,6 +13,8 @@ import { ActivityIndicator, View } from 'react-native';
 import { DiscordColors } from '@/constants/theme';
 import socketService from '@/services/socketService';
 import { DirectMessage } from '@/types/dm';
+import { registerForPushNotificationsAsync, sendFcmTokenToBackend } from '@/services/notificationService';
+import * as Notifications from 'expo-notifications';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -54,6 +56,70 @@ export default function RootLayout() {
       void socketService.connect().catch(() => undefined);
     }
   }, [isAuthenticated, isLoading]);
+
+  // ── Push Notification Registration ────────────────
+  useEffect(() => {
+    if (isAuthenticated && !isLoading) {
+      const setupNotifications = async () => {
+        // Đăng ký Action Buttons cho thông báo cuộc gọi
+        await Notifications.setNotificationCategoryAsync('call_invite_category', [
+          {
+            identifier: 'ACCEPT_CALL',
+            buttonTitle: 'Nghe',
+            options: { opensAppToForeground: true },
+          },
+          {
+            identifier: 'DECLINE_CALL',
+            buttonTitle: 'Từ chối',
+            options: { isDestructive: true, opensAppToForeground: false },
+          },
+        ]);
+
+        const token = await registerForPushNotificationsAsync();
+        if (token) {
+          await sendFcmTokenToBackend(token);
+        }
+      };
+      void setupNotifications();
+    }
+  }, [isAuthenticated, isLoading]);
+
+  // ── Push Notification Interaction (Nhấn vào thông báo) ────────────────
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const subscription = Notifications.addNotificationResponseReceivedListener(response => {
+      const data = response.notification.request.content.data;
+      const actionIdentifier = response.actionIdentifier;
+      
+      // Nếu người dùng bấm "Từ chối" cuộc gọi
+      if (actionIdentifier === 'DECLINE_CALL') {
+        // Có thể gọi API hủy cuộc gọi ở đây nếu cần
+        console.log('User declined the call');
+        return;
+      }
+
+      // Xử lý điều hướng dựa trên data gửi từ Backend (đã config trong FcmService.java)
+      if (data?.type === 'dm' && data?.conversationId) {
+        router.push(`/dm/${data.conversationId}`);
+      } else if (data?.type === 'server_message' && data?.channelId) {
+        router.push(`/channel/${data.channelId}`);
+      } else if (data?.type === 'friend_request') {
+        // Chuyển hướng đến màn hình Bạn bè (Friends Tab)
+        router.push('/(tabs)/friends'); 
+      } else if (data?.type === 'call_invite' && data?.conversationId) {
+        // Nếu người dùng bấm thẳng vào nút "Nghe" (ACCEPT_CALL) thì tự động nhận cuộc gọi
+        if (actionIdentifier === 'ACCEPT_CALL') {
+          router.push(`/dm/${data.conversationId}?autoAccept=true`);
+        } else {
+          // Chỉ bấm vào banner chung chung thì mở phòng chat
+          router.push(`/dm/${data.conversationId}?incomingCall=true`);
+        }
+      }
+    });
+
+    return () => subscription.remove();
+  }, [isAuthenticated, router]);
 
   // ── Presence Subscription ──────────────────────────
   useEffect(() => {

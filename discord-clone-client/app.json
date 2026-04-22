@@ -27,7 +27,8 @@
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.BLUETOOTH_CONNECT"
       ],
-      "package": "com.discordclrnfrontend"
+      "package": "com.discordclrnfrontend",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "static",

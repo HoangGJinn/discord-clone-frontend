@@ -59,7 +59,7 @@ function useDMWebSocket(conversationId: string) {
 
 // ─── Screen ──────────────────────────────────────────────────
 export default function DMChatScreen() {
-  const { conversationId: conversationIdParam } = useLocalSearchParams<{ conversationId: string | string[] }>();
+  const { conversationId: conversationIdParam, autoAccept, incomingCall } = useLocalSearchParams<{ conversationId: string | string[], autoAccept?: string, incomingCall?: string }>();
   const router = useRouter();
   const flatListRef = useRef<FlatList<DirectMessage>>(null);
   const pendingScrollIndexRef = useRef<number | null>(null);
@@ -137,6 +137,21 @@ export default function DMChatScreen() {
     setCallType(activeCall.callType);
     setVoiceCallVisible(true);
   }, [activeCall, conversationId, user?.id]);
+
+  // Tự động nhận cuộc gọi nếu người dùng bấm "Nghe" từ Push Notification
+  useEffect(() => {
+    if (!activeCall || !user?.id) return;
+    if (activeCall.status !== 'PENDING') return;
+    if (String(activeCall.receiverId) !== String(user.id)) return;
+
+    if (autoAccept === 'true' || incomingCall === 'true') {
+      console.log('[DMChatScreen] Auto-accepting call from push notification...');
+      handleAcceptCall(activeCall.callType === 'VIDEO').then(() => {
+        setCallType(activeCall.callType);
+        setVoiceCallVisible(true);
+      });
+    }
+  }, [autoAccept, incomingCall, activeCall, user?.id, handleAcceptCall]);
 
   const handleStartCall = useCallback(async () => {
     if (!conversationId || !user?.id) return;
