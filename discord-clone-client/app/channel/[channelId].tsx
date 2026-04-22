@@ -22,11 +22,12 @@ import { MessageActionSheet } from '@/components/MessageActionSheet';
 import { EmojiPicker } from '@/components/EmojiPicker';
 import { useChannelChatStore } from '@/store/useChannelChatStore';
 import { useAuthStore } from '@/store/useAuthStore';
+import { useServerStore } from '@/store/useServerStore';
 import { ChannelMessage } from '@/types/channel';
 import { DiscordColors, Spacing } from '@/constants/theme';
 import { isDifferentDay, formatDaySeparator } from '@/utils/formatTime';
 import socketService from '@/services/socketService';
-import { ChannelResponse, getChannelById } from '@/services/serverService';
+import { ChannelResponse, getChannelById, markChannelAsRead } from '@/services/serverService';
 
 // ─── Custom Hook: Encapsulates WebSocket subscription logic ──
 function useChannelWebSocket(channelId: string) {
@@ -60,6 +61,7 @@ export default function ChannelChatScreen() {
   const [channelInfo, setChannelInfo] = useState<ChannelResponse | null>(null);
 
   const user = useAuthStore((s) => s.user);
+  const clearChannelUnread = useServerStore((s) => s.clearChannelUnread);
   const {
     messages,
     isLoadingMessages,
@@ -105,13 +107,17 @@ export default function ChannelChatScreen() {
       try {
         const response = await getChannelById(Number(channelId));
         setChannelInfo(response);
+        if (response?.serverId) {
+          clearChannelUnread(response.serverId, Number(channelId));
+        }
+        await markChannelAsRead(Number(channelId));
       } catch {
         setChannelInfo(null);
       }
     };
 
     void loadChannel();
-  }, [channelId]);
+  }, [channelId, clearChannelUnread]);
 
   // ── Subscribe to real-time updates ─────────────────────
   useChannelWebSocket(channelId || '');

@@ -51,6 +51,7 @@ export interface BackendConversationResponse {
   otherUserId?: number;
   otherUserName?: string;
   otherUserAvatar?: string;
+  unreadCount?: number;
   createdAt: string | Date;
   updatedAt?: string | Date;
 }
@@ -163,6 +164,7 @@ export function transformConversation(
     lastMessage: conv.lastMessage
       ? transformDirectMessage(conv.lastMessage, currentUserId)
       : undefined,
+    unreadCount: typeof conv.unreadCount === 'number' ? conv.unreadCount : 0,
     createdAt:
       typeof conv.createdAt === "string"
         ? conv.createdAt

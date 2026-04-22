@@ -7,14 +7,12 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 
 import { useAuthStore } from '@/store/useAuthStore';
 import { useFriendStore } from '@/store/useFriendStore';
-import { useGlobalCallStore } from '@/store/useGlobalCallStore';
-import { useDMCallStore } from '@/store/useDMCallStore';
+import { useDMStore } from '@/store/useDMStore';
 import { useEffect } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { DiscordColors } from '@/constants/theme';
 import socketService from '@/services/socketService';
-import { IncomingCallOverlay } from '@/components/IncomingCallOverlay';
-import { DMCallState } from '@/services/dmCallService';
+import { DirectMessage } from '@/types/dm';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -28,8 +26,8 @@ export default function RootLayout() {
   const segments = useSegments();
   const router = useRouter();
   const updateFriendStatus = useFriendStore((state) => state.updateFriendStatus);
-  const showIncoming = useGlobalCallStore((state) => state.showIncoming);
-  const clearIncoming = useGlobalCallStore((state) => state.clearIncoming);
+  const applyRealtimeQueueEvent = useDMStore((state) => state.applyRealtimeQueueEvent);
+  const fetchConversations = useDMStore((state) => state.fetchConversations);
 
   useEffect(() => {
     void useAuthStore.getState().initialize();
@@ -86,72 +84,51 @@ export default function RootLayout() {
     };
   }, [isAuthenticated, isLoading, updateFriendStatus]);
 
-  // ── Global Incoming Call Subscription ──────────────
+  // ── Global DM Queue Subscription (updates DM list in any screen) ──────────────
   useEffect(() => {
-    if (!isAuthenticated || isLoading || !user?.id) return;
+    if (!isAuthenticated || isLoading) return;
 
-    const userId = user.id.toString();
-    const destination = `/topic/user/${userId}/incoming-call`;
-
-    const subscribeToIncomingCall = async () => {
+    const destination = '/user/queue/dm';
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+    const onDmQueueMessage = (message: DirectMessage) => {
       try {
-        interface IncomingCallMessage {
-          type?: string;
-          callState?: DMCallState;
-          callerId?: string;
-          receiverId?: string;
-          callerName?: string;
-          callerAvatar?: string;
-          callType?: string;
-          conversationId?: string;
+        const applied = applyRealtimeQueueEvent(message as DirectMessage);
+        if (!applied) {
+          void fetchConversations();
+          return;
         }
 
-        await socketService.subscribe<IncomingCallMessage>(destination, (message) => {
-          console.log('[RootLayout] Incoming call WS message:', message);
-
-          if (!message || !message.type) return;
-
-          switch (message.type) {
-            case 'CALL_INCOMING': {
-              // Chỉ hiển thị cho receiver, không phải caller
-              if (message.callState && message.callState.callerId !== userId) {
-                const dmCallStore = useDMCallStore.getState();
-                
-                // BUSY logic: Nếu đang ở trong cuộc gọi khác, không hiện overlay
-                if (dmCallStore.activeCall) {
-                  if (dmCallStore.activeCall.conversationId === message.callState.conversationId) {
-                      // Cùng 1 cuộc gọi, local handler sẽ xử lý (ví dụ đang ở trong DM chat)
-                      return;
-                  }
-                  // Đang bận cuộc gọi khác
-                  console.log('[RootLayout] BUSY: Already in another call');
-                  return;
-                }
-                
-                showIncoming(message.callState);
-              }
-              break;
-            }
-            case 'CALL_ACCEPTED':
-            case 'CALL_DECLINED':
-            case 'CALL_ENDED':
-            case 'CALL_MISSED':
-              // Ẩn overlay khi cuộc gọi kết thúc/từ chối
-              clearIncoming();
-              break;
-          }
-        });
-      } catch (error) {
-        console.warn('Incoming call subscription warning:', error);
+        // Safety net for partial payloads from queue events.
+        if (fallbackTimer) {
+          clearTimeout(fallbackTimer);
+        }
+        fallbackTimer = setTimeout(() => {
+          void fetchConversations();
+          fallbackTimer = null;
+        }, 1200);
+      } catch (err) {
+        console.warn('DM queue message handling warning:', err);
+        void fetchConversations();
       }
     };
 
-    void subscribeToIncomingCall();
+    const subscribeToDmQueue = async () => {
+      try {
+        await socketService.subscribe(destination, onDmQueueMessage);
+      } catch (error) {
+        console.warn('DM queue subscription warning:', error);
+      }
+    };
+
+    void subscribeToDmQueue();
 
     return () => {
-      socketService.unsubscribe(destination);
+      socketService.unsubscribe(destination, onDmQueueMessage);
+      if (fallbackTimer) {
+        clearTimeout(fallbackTimer);
+      }
     };
-  }, [isAuthenticated, isLoading, user?.id, showIncoming, clearIncoming]);
+  }, [isAuthenticated, isLoading, applyRealtimeQueueEvent, fetchConversations]);
 
   if (isLoading) {
     return (
@@ -186,8 +163,6 @@ export default function RootLayout() {
         <Stack.Screen name="friends/add" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
-      {/* Global Incoming Call Overlay - hiển thị bất kể đang ở screen nào */}
-      <IncomingCallOverlay />
       <StatusBar style="auto" />
     </ThemeProvider>
   );

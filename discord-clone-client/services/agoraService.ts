@@ -17,6 +17,8 @@ class AgoraService {
   private localVideoEnabled: boolean = false;
   private localAudioEnabled: boolean = false;
   private isInChannelFlag: boolean = false;
+  private localUidHint: number | null = null;
+  private localUserAccount: string | null = null;
   
   // Callbacks
   private onLocalVideoReadyCallback: ((uid: UID) => void) | null = null;
@@ -28,6 +30,8 @@ class AgoraService {
   private onUserLeftCallback: ((uid: UID) => void) | null = null;
   private onErrorCallback: ((error: Error) => void) | null = null;
   private onConnectionStateChangeCallback: ((state: number) => void) | null = null;
+  private onRemoteSpeakingCallback: ((isSpeaking: boolean, uid: UID) => void) | null = null;
+  private onLocalSpeakingCallback: ((isSpeaking: boolean, volume: number) => void) | null = null;
 
   /**
    * Khởi tạo Agora engine
@@ -79,13 +83,11 @@ class AgoraService {
 
     // User joined
     this.engine.addListener('onUserJoined', (connection, remoteUid) => {
-      console.log('[AgoraService] User joined:', remoteUid);
       this.onUserJoinedCallback?.(remoteUid);
     });
 
     // User left
     this.engine.addListener('onUserOffline', (connection, remoteUid, reason) => {
-      console.log('[AgoraService] User left:', remoteUid, reason);
       this.onRemoteVideoRemovedCallback?.(remoteUid);
       this.onRemoteAudioRemovedCallback?.(remoteUid);
       this.onUserLeftCallback?.(remoteUid);
@@ -93,7 +95,6 @@ class AgoraService {
 
     // Remote video state changed
     this.engine.addListener('onRemoteVideoStateChanged', (connection, remoteUid, state, reason, elapsed) => {
-      console.log('[AgoraService] Remote video state changed:', remoteUid, state);
       if (state === 1) { // REMOTE_VIDEO_STATE_DECODING = 1
         this.onRemoteVideoReadyCallback?.(remoteUid);
       } else if (state === 0) { // REMOTE_VIDEO_STATE_STOPPED = 0
@@ -101,9 +102,17 @@ class AgoraService {
       }
     });
 
+    // Remote audio state changed
+    this.engine.addListener('onRemoteAudioStateChanged', (connection, remoteUid, state, reason, elapsed) => {
+      if (state === 3) { // REMOTE_AUDIO_STATE_DECODING = 3
+        this.onRemoteAudioReadyCallback?.(remoteUid);
+      } else if (state === 0) { // REMOTE_AUDIO_STATE_STOPPED = 0
+        this.onRemoteAudioRemovedCallback?.(remoteUid);
+      }
+    });
+
     // Connection state changed
     this.engine.addListener('onConnectionStateChanged', (connection, state, reason) => {
-      console.log('[AgoraService] Connection state changed:', state, reason);
       this.onConnectionStateChangeCallback?.(state);
     });
 
@@ -111,6 +120,48 @@ class AgoraService {
     this.engine.addListener('onError', (errorCode) => {
       console.error('[AgoraService] Error code:', errorCode);
       this.onErrorCallback?.(new Error(`Agora error code: ${errorCode}`));
+    });
+
+    // Audio volume indication for speaking indicator.
+    this.engine.addListener('onAudioVolumeIndication', (...args: any[]) => {
+      try {
+        const speakers: any[] = Array.isArray(args[0])
+          ? args[0]
+          : Array.isArray(args[1])
+            ? args[1]
+            : [];
+        let localSpeaking = false;
+        let localVolume = 0;
+        let remoteSpeakingUid: UID | null = null;
+        const threshold = 8;
+
+        for (const speaker of speakers || []) {
+          const uid = speaker?.uid;
+          const volume = Number(speaker?.volume ?? 0);
+          const userAccount = speaker?.userAccount ? String(speaker.userAccount) : null;
+          const isSpeaking = volume > threshold;
+          const isLocalSpeaker =
+            uid === 0 ||
+            (typeof uid === 'number' && this.localUidHint != null && uid === this.localUidHint) ||
+            (userAccount != null && this.localUserAccount != null && userAccount === this.localUserAccount);
+
+          if (isLocalSpeaker) {
+            localSpeaking = isSpeaking;
+            localVolume = volume;
+          } else if (isSpeaking && remoteSpeakingUid == null) {
+            remoteSpeakingUid = userAccount ?? uid;
+          }
+        }
+
+        this.onLocalSpeakingCallback?.(localSpeaking, localVolume);
+        if (remoteSpeakingUid != null) {
+          this.onRemoteSpeakingCallback?.(true, remoteSpeakingUid);
+        } else {
+          this.onRemoteSpeakingCallback?.(false, 0);
+        }
+      } catch (error) {
+        console.error('[AgoraService] onAudioVolumeIndication handler error:', error);
+      }
     });
   }
 
@@ -131,40 +182,70 @@ class AgoraService {
       throw new Error('Failed to create Agora engine');
     }
 
+    const userAccount = String(uid);
     const numericUid = typeof uid === 'string' ? parseInt(uid, 10) : uid;
-    const normalizedToken = token && token.trim().length > 0 ? token : null;
-
-    console.log('[AgoraService] Joining channel:', {
-      appId,
-      channelName,
-      token: normalizedToken ? '[provided]' : '[none]',
-      uid: numericUid,
-    });
+    // Keep empty-string token for App ID testing mode.
+    // Passing null can be interpreted as invalid token in some SDK/runtime paths.
+    const normalizedToken = typeof token === 'string' ? token.trim() : '';
 
     try {
       // Enable video if needed
       await this.engine.enableVideo();
       await this.engine.enableAudio();
+      if (typeof this.engine.setDefaultAudioRouteToSpeakerphone === 'function') {
+        this.engine.setDefaultAudioRouteToSpeakerphone(true);
+      }
+      if (typeof this.engine.setEnableSpeakerphone === 'function') {
+        await this.engine.setEnableSpeakerphone(true);
+      }
+      if (typeof this.engine.muteAllRemoteAudioStreams === 'function') {
+        await this.engine.muteAllRemoteAudioStreams(false);
+      }
       
       // Join the channel
-      const joinResult = this.engine.joinChannel(
-        normalizedToken,
-        channelName,
-        numericUid,
-        {
-          clientRoleType: ClientRoleType.ClientRoleBroadcaster,
-          publishMicrophoneTrack: true,
-          autoSubscribeVideo: true,
-          autoSubscribeAudio: true,
-        }
-      );
+      const mediaOptions = {
+        clientRoleType: ClientRoleType.ClientRoleBroadcaster,
+        publishMicrophoneTrack: true,
+        publishCameraTrack: false,
+        autoSubscribeVideo: true,
+        autoSubscribeAudio: true,
+      };
+
+      let joinResult: number;
+      if (typeof this.engine.joinChannelWithUserAccount === 'function') {
+        // Backend DM call token is created with userAccount. Must join by userAccount.
+        joinResult = this.engine.joinChannelWithUserAccount(
+          normalizedToken,
+          channelName,
+          userAccount,
+          mediaOptions
+        );
+      } else {
+        // Fallback for SDK variants without userAccount API.
+        joinResult = this.engine.joinChannel(
+          normalizedToken,
+          channelName,
+          numericUid,
+          mediaOptions
+        );
+      }
 
       if (joinResult < 0) {
         throw new Error(`Agora joinChannel failed with code ${joinResult}`);
       }
 
       this.isInChannelFlag = true;
-      console.log('[AgoraService] Joined channel with result:', joinResult);
+      this.localUidHint = Number.isFinite(Number(numericUid)) ? Number(numericUid) : null;
+      this.localUserAccount = userAccount;
+      this.engine.updateChannelMediaOptions?.({
+        publishMicrophoneTrack: true,
+        publishCameraTrack: false,
+        autoSubscribeAudio: true,
+      });
+      if (typeof this.engine.enableAudioVolumeIndication === 'function') {
+        // 200ms interval gives responsive speaking indicator.
+        this.engine.enableAudioVolumeIndication(200, 3, true);
+      }
       return numericUid;
     } catch (error) {
       console.error('[AgoraService] Failed to join channel:', error);
@@ -183,15 +264,28 @@ class AgoraService {
     try {
       // Start local audio stream
       await this.engine.enableLocalAudio(true);
+      await this.engine.muteLocalAudioStream(false);
+      this.engine.updateChannelMediaOptions?.({
+        clientRoleType: ClientRoleType.ClientRoleBroadcaster,
+        publishMicrophoneTrack: true,
+        publishCameraTrack: enableVideo,
+        autoSubscribeAudio: true,
+        autoSubscribeVideo: true,
+      });
+      if (typeof this.engine.adjustRecordingSignalVolume === 'function') {
+        await this.engine.adjustRecordingSignalVolume(100);
+      }
       this.localAudioEnabled = true;
-      console.log('[AgoraService] Audio track started');
 
       // Start local video stream if enabled
       if (enableVideo) {
+        await this.engine.enableVideo();
         await this.engine.enableLocalVideo(true);
+        if (typeof this.engine.muteLocalVideoStream === 'function') {
+          await this.engine.muteLocalVideoStream(false);
+        }
         await this.engine.startPreview();
         this.localVideoEnabled = true;
-        console.log('[AgoraService] Video track started');
         this.onLocalVideoReadyCallback?.(0); // 0 for local user
       }
     } catch (error) {
@@ -220,12 +314,13 @@ class AgoraService {
 
         // Leave channel
         this.engine.leaveChannel();
-        console.log('[AgoraService] Left channel');
       }
 
       this.isInChannelFlag = false;
       this.localVideoEnabled = false;
       this.localAudioEnabled = false;
+      this.localUidHint = null;
+      this.localUserAccount = null;
     } catch (error) {
       console.error('[AgoraService] Error leaving channel:', error);
     }
@@ -238,9 +333,29 @@ class AgoraService {
     if (this.engine) {
       try {
         await this.engine.muteLocalAudioStream(muted);
-        console.log('[AgoraService] Audio muted:', muted);
+        this.engine.updateChannelMediaOptions?.({
+          clientRoleType: ClientRoleType.ClientRoleBroadcaster,
+          publishMicrophoneTrack: !muted,
+          publishCameraTrack: this.localVideoEnabled,
+          autoSubscribeAudio: true,
+          autoSubscribeVideo: true,
+        });
       } catch (error) {
         console.error('[AgoraService] Failed to mute audio:', error);
+      }
+    }
+  }
+
+  /**
+   * Toggle playback of all remote audio streams.
+   * Used for "deafen" (self cannot hear others).
+   */
+  async setRemoteAudioPlaybackMuted(muted: boolean): Promise<void> {
+    if (this.engine && typeof this.engine.muteAllRemoteAudioStreams === 'function') {
+      try {
+        await this.engine.muteAllRemoteAudioStreams(muted);
+      } catch (error) {
+        console.error('[AgoraService] Failed to toggle remote audio playback:', error);
       }
     }
   }
@@ -251,14 +366,27 @@ class AgoraService {
   async setVideoEnabled(enabled: boolean): Promise<void> {
     if (this.engine) {
       try {
+        await this.engine.enableVideo();
         await this.engine.enableLocalVideo(enabled);
         if (enabled) {
+          if (typeof this.engine.muteLocalVideoStream === 'function') {
+            await this.engine.muteLocalVideoStream(false);
+          }
           await this.engine.startPreview();
         } else {
+          if (typeof this.engine.muteLocalVideoStream === 'function') {
+            await this.engine.muteLocalVideoStream(true);
+          }
           await this.engine.stopPreview();
         }
+        this.engine.updateChannelMediaOptions?.({
+          clientRoleType: ClientRoleType.ClientRoleBroadcaster,
+          publishMicrophoneTrack: this.localAudioEnabled,
+          publishCameraTrack: enabled,
+          autoSubscribeAudio: true,
+          autoSubscribeVideo: true,
+        });
         this.localVideoEnabled = enabled;
-        console.log('[AgoraService] Video enabled:', enabled);
       } catch (error) {
         console.error('[AgoraService] Failed to toggle video:', error);
       }
@@ -300,7 +428,6 @@ class AgoraService {
     if (this.engine) {
       try {
         await this.engine.switchCamera();
-        console.log('[AgoraService] Camera switched');
       } catch (error) {
         console.error('[AgoraService] Failed to switch camera:', error);
       }
@@ -377,6 +504,14 @@ class AgoraService {
     this.onConnectionStateChangeCallback = callback;
   }
 
+  onRemoteSpeaking(callback: (isSpeaking: boolean, uid: UID) => void): void {
+    this.onRemoteSpeakingCallback = callback;
+  }
+
+  onLocalSpeaking(callback: (isSpeaking: boolean, volume: number) => void): void {
+    this.onLocalSpeakingCallback = callback;
+  }
+
   /**
    * Xóa tất cả callbacks
    */
@@ -390,6 +525,8 @@ class AgoraService {
     this.onUserLeftCallback = null;
     this.onErrorCallback = null;
     this.onConnectionStateChangeCallback = null;
+    this.onRemoteSpeakingCallback = null;
+    this.onLocalSpeakingCallback = null;
   }
 }
 

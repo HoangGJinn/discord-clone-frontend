@@ -11,6 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -25,12 +26,12 @@ import { EmojiPicker } from '@/components/EmojiPicker';
 import { VoiceCallUI } from '@/components/VoiceCallUI';
 import { useDMStore } from '@/store/useDMStore';
 import { useAuthStore } from '@/store/useAuthStore';
-import { useDMCallStore } from '@/store/useDMCallStore';
 import { DirectMessage, getOtherParticipant } from '@/types/dm';
 import { DiscordColors, Spacing } from '@/constants/theme';
 import { NAMEPLATE_EFFECTS } from '@/constants/profileEffects';
 import { isDifferentDay, formatDaySeparator } from '@/utils/formatTime';
 import socketService from '@/services/socketService';
+import { useDMCall } from '@/hooks/useDMCall';
 
 // ─── Custom Hook: Encapsulates WebSocket subscription logic ──
 function useDMWebSocket(conversationId: string) {
@@ -40,27 +41,31 @@ function useDMWebSocket(conversationId: string) {
     if (!conversationId) return;
 
     const destination = `/topic/dm/${conversationId}`;
-
-    void socketService.subscribe(destination, (message) => {
+    const onMessage = (message: DirectMessage) => {
       try {
-        addRealtimeMessage(message as DirectMessage);
+        addRealtimeMessage(message);
       } catch (err) {
         console.error('Failed to parse DM WebSocket message:', err);
       }
-    });
+    };
+
+    void socketService.subscribe(destination, onMessage);
 
     return () => {
-      socketService.unsubscribe(destination);
+      socketService.unsubscribe(destination, onMessage);
     };
   }, [conversationId, addRealtimeMessage]);
 }
 
 // ─── Screen ──────────────────────────────────────────────────
 export default function DMChatScreen() {
-  const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
+  const { conversationId: conversationIdParam } = useLocalSearchParams<{ conversationId: string | string[] }>();
   const router = useRouter();
   const flatListRef = useRef<FlatList<DirectMessage>>(null);
   const pendingScrollIndexRef = useRef<number | null>(null);
+  const conversationId = Array.isArray(conversationIdParam)
+    ? conversationIdParam[0]
+    : conversationIdParam;
 
   const user = useAuthStore((s) => s.user);
   const {
@@ -72,7 +77,8 @@ export default function DMChatScreen() {
     fetchMessages,
     loadMoreMessages,
     sendMessage,
-    clearMessages,
+    setActiveConversation,
+    markConversationAsRead,
     editMessage,
     deleteMessage,
     addReaction,
@@ -86,8 +92,6 @@ export default function DMChatScreen() {
   const [replyingToMessage, setReplyingToMessage] = useState<DirectMessage | null>(null);
   const [emojiPickerVisible, setEmojiPickerVisible] = useState(false);
   const [emojiTargetMessageId, setEmojiTargetMessageId] = useState<string | null>(null);
-
-  // ── Day 5: Voice/Video Call State ────────────────────────
   const [voiceCallVisible, setVoiceCallVisible] = useState(false);
   const [callType, setCallType] = useState<'VOICE' | 'VIDEO'>('VOICE');
   const [shouldAutoStartCall, setShouldAutoStartCall] = useState(false);
@@ -99,61 +103,109 @@ export default function DMChatScreen() {
       ? getOtherParticipant(conversation, user.id)
       : null;
 
-  // ── Sync with Global Call Store ────────────────────────
-  const activeCall = useDMCallStore((s) => s.activeCall);
-  useEffect(() => {
-    if (activeCall && activeCall.conversationId === conversationId && activeCall.status !== 'ENDED' && activeCall.status !== 'DECLINED') {
-      if (!voiceCallVisible) {
-        setVoiceCallVisible(true);
-        // Sync call type if it's already active
-        setCallType(activeCall.callType);
-        // Modal opened from store/incoming flow -> không tự start call
-        setShouldAutoStartCall(false);
-      }
-    }
-  }, [activeCall, conversationId, voiceCallVisible]);
+  // ── Day 5: DM call logic with in-room UI ────────────────────────
+  const {
+    activeCall,
+    isInCall,
+    isRemoteSpeaking,
+    isLocalSpeaking,
+    handleStartCall: startDmCall,
+    handleAcceptCall,
+    handleEndCall,
+    handleToggleMute,
+    handleToggleDeafen,
+    handleToggleCamera,
+    handleSwitchCamera,
+  } = useDMCall(conversationId || '', String(user?.id || ''));
 
-  // ── Voice/Video Call Handlers ───────────────────────────
-  const handleSendMessageInCall = useCallback(() => {
-    // Đóng call UI, quay lại chat (cuộc gọi vẫn tiếp tục ngầm)
-    setVoiceCallVisible(false);
-  }, []);
+  // Open room UI when call is active/pending for this conversation.
+  useEffect(() => {
+    if (!activeCall || !conversationId) return;
+    if (activeCall.conversationId !== conversationId) return;
+    if (activeCall.status === 'ENDED' || activeCall.status === 'DECLINED' || activeCall.status === 'MISSED') {
+      setVoiceCallVisible(false);
+      setShouldAutoStartCall(false);
+      return;
+    }
+    const isCurrentUserCaller = String(activeCall.callerId || '') === String(user?.id || '');
+    const shouldShowRoomUi =
+      activeCall.status === 'ACCEPTED' ||
+      (activeCall.status === 'PENDING' && isCurrentUserCaller);
+    if (!shouldShowRoomUi) {
+      return;
+    }
+    setCallType(activeCall.callType);
+    setVoiceCallVisible(true);
+  }, [activeCall, conversationId, user?.id]);
+
+  const handleStartCall = useCallback(async () => {
+    if (!conversationId || !user?.id) return;
+    setCallType('VOICE');
+    setVoiceCallVisible(true);
+
+    // If current user is receiver of a pending call, join that room by accepting.
+    if (
+      activeCall &&
+      activeCall.conversationId === conversationId &&
+      activeCall.status === 'PENDING' &&
+      String(activeCall.receiverId) === String(user.id)
+    ) {
+      await handleAcceptCall(false);
+      return;
+    }
+
+    setShouldAutoStartCall(true);
+    await startDmCall('VOICE');
+  }, [activeCall, conversationId, handleAcceptCall, startDmCall, user?.id]);
+
+  const handleStartVideoCall = useCallback(async () => {
+    if (!conversationId || !user?.id) return;
+    setCallType('VIDEO');
+    setVoiceCallVisible(true);
+
+    if (
+      activeCall &&
+      activeCall.conversationId === conversationId &&
+      activeCall.status === 'PENDING' &&
+      String(activeCall.receiverId) === String(user.id)
+    ) {
+      await handleAcceptCall(true);
+      return;
+    }
+
+    setShouldAutoStartCall(true);
+    await startDmCall('VIDEO');
+  }, [activeCall, conversationId, handleAcceptCall, startDmCall, user?.id]);
 
   const handleLeaveCall = useCallback(() => {
-    console.log('[Call] Leaving call');
     setVoiceCallVisible(false);
     setShouldAutoStartCall(false);
   }, []);
 
-  const handleMinimizeCall = useCallback(() => {
-    setVoiceCallVisible(false);
-    console.log('[Call] Minimized');
-  }, []);
-
-  const handleStartCall = useCallback(() => {
-    setCallType('VOICE');
-    setShouldAutoStartCall(true);
-    setVoiceCallVisible(true);
-    console.log('[VoiceCall] Starting voice call with:', otherUser?.username);
-  }, [otherUser]);
-
-  const handleStartVideoCall = useCallback(() => {
-    setCallType('VIDEO');
-    setShouldAutoStartCall(true);
-    setVoiceCallVisible(true);
-    console.log('[VideoCall] Starting video call with:', otherUser?.username);
-  }, [otherUser]);
-
 
   // ── Load messages on mount ─────────────────────────────
   useEffect(() => {
-    if (conversationId) {
-      fetchMessages(conversationId);
-    }
+    if (!conversationId) return;
+
+    setActiveConversation(conversationId);
+    fetchMessages(conversationId);
+    void markConversationAsRead(conversationId);
+
     return () => {
-      clearMessages();
+      setActiveConversation(null);
     };
-  }, [conversationId]);
+  }, [conversationId, fetchMessages, setActiveConversation]);
+
+  // Ensure chat history is refreshed every time screen gets focus.
+  useFocusEffect(
+    useCallback(() => {
+      if (!conversationId) return;
+      setActiveConversation(conversationId);
+      fetchMessages(conversationId);
+      void markConversationAsRead(conversationId);
+      return undefined;
+    }, [conversationId, fetchMessages, markConversationAsRead, setActiveConversation]),
+  );
 
   // ── Subscribe to real-time updates ─────────────────────
   useDMWebSocket(conversationId || '');
@@ -607,7 +659,6 @@ export default function DMChatScreen() {
         onSelectEmoji={handleEmojiSelected}
       />
 
-      {/* Voice/Video Call UI */}
       <VoiceCallUI
         visible={voiceCallVisible}
         autoStart={shouldAutoStartCall}
@@ -619,11 +670,21 @@ export default function DMChatScreen() {
         remoteAvatarEffectId={otherUser?.avatarEffectId}
         remoteBannerEffectId={otherUser?.bannerEffectId}
         remoteCardEffectId={otherUser?.cardEffectId}
-        onSendMessage={handleSendMessageInCall}
         onLeave={handleLeaveCall}
-        onMinimize={handleMinimizeCall}
+        onMinimize={handleLeaveCall}
         onAutoStartHandled={() => setShouldAutoStartCall(false)}
+        activeCall={activeCall}
+        isInCall={isInCall}
+        isRemoteSpeaking={isRemoteSpeaking}
+        isLocalSpeaking={isLocalSpeaking}
+        handleStartCall={startDmCall}
+        handleEndCall={handleEndCall}
+        handleToggleMute={handleToggleMute}
+        handleToggleDeafen={handleToggleDeafen}
+        handleToggleCamera={handleToggleCamera}
+        handleSwitchCamera={handleSwitchCamera}
       />
+
     </SafeAreaView>
   );
 }

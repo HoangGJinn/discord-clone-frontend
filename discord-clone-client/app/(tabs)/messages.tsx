@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  Alert,
   View,
   FlatList,
   StyleSheet,
@@ -19,6 +20,7 @@ import { useAuthStore } from '@/store/useAuthStore';
 import { Conversation, getOtherParticipant } from '@/types/dm';
 import { DiscordColors, Spacing } from '@/constants/theme';
 import { isImageAttachment } from '@/utils/attachments';
+import socketService from '@/services/socketService';
 
 function buildLastMessagePreview(conversation: Conversation) {
   const lastMessage = conversation.lastMessage;
@@ -69,12 +71,35 @@ export default function MessagesScreen() {
     conversations,
     isLoadingConversations,
     fetchConversations,
+    markConversationAsRead,
+    markConversationAsUnread,
   } = useDMStore();
 
   // ── Load conversations on mount ────────────────────────
   useEffect(() => {
     fetchConversations();
   }, []);
+
+  useEffect(() => {
+    if (!conversations.length) return;
+
+    const subscriptions: Array<{ destination: string; listener: (message: any) => void }> = [];
+
+    conversations.forEach((conversation) => {
+      const destination = `/topic/dm/${conversation.id}`;
+      const listener = (message: any) => {
+        useDMStore.getState().applyRealtimeQueueEvent(message);
+      };
+      subscriptions.push({ destination, listener });
+      void socketService.subscribe(destination, listener);
+    });
+
+    return () => {
+      subscriptions.forEach(({ destination, listener }) => {
+        socketService.unsubscribe(destination, listener);
+      });
+    };
+  }, [conversations]);
 
   // ── Filter conversations by search query ───────────────
   const filteredConversations = conversations.filter((conv) => {
@@ -124,6 +149,19 @@ export default function MessagesScreen() {
             lastMessageTime={item.lastMessage?.createdAt || item.updatedAt}
             unreadCount={item.unreadCount}
             onPress={() => handleOpenConversation(item.id)}
+            onLongPress={() => {
+              const hasUnread = (item.unreadCount ?? 0) > 0;
+              Alert.alert(
+                'Conversation options',
+                'Update read status for this conversation.',
+                [
+                  hasUnread
+                    ? { text: 'Mark as read', onPress: () => { void markConversationAsRead(item.id); } }
+                    : { text: 'Mark as unread', onPress: () => { void markConversationAsUnread(item.id); } },
+                  { text: 'Cancel', style: 'cancel' },
+                ],
+              );
+            }}
             index={index}
           />
         );
@@ -132,7 +170,7 @@ export default function MessagesScreen() {
         return null;
       }
     },
-    [user, handleOpenConversation],
+    [user, handleOpenConversation, markConversationAsRead, markConversationAsUnread],
   );
 
   const keyExtractor = useCallback(

@@ -8,6 +8,9 @@ import {
   StatusBar,
   Pressable,
   Text,
+  Platform,
+  ToastAndroid,
+  Alert,
 } from 'react-native';
 import Animated, {
   FadeIn,
@@ -29,10 +32,26 @@ import { Avatar } from './Avatar';
 import { UserAvatarWithActions } from './UserAvatarWithActions';
 import { DiscordColors, Spacing } from '@/constants/theme';
 import { useAuthStore } from '@/store/useAuthStore';
-import { useDMCall } from '@/hooks/useDMCall';
 import VideoRenderer from './VideoRenderer';
+import { DMCallState } from '@/services/dmCallService';
+import { agoraService } from '@/services/agoraService';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+let RtcSurfaceView: any = null;
+let VideoSourceType: any = null;
+let RenderModeType: any = null;
+if (Platform.OS !== 'web') {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const agora = require('react-native-agora');
+    RtcSurfaceView = agora.RtcSurfaceView;
+    VideoSourceType = agora.VideoSourceType;
+    RenderModeType = agora.RenderModeType;
+  } catch {
+    // Keep nulls; UI will fall back to placeholders.
+  }
+}
 
 interface VoiceCallUIProps {
   visible: boolean;
@@ -49,6 +68,16 @@ interface VoiceCallUIProps {
   onLeave?: () => void;
   onMinimize?: () => void;
   onAutoStartHandled?: () => void;
+  activeCall: DMCallState | null;
+  isInCall: boolean;
+  isRemoteSpeaking: boolean;
+  isLocalSpeaking: boolean;
+  handleStartCall: (callType?: 'VOICE' | 'VIDEO') => Promise<boolean>;
+  handleEndCall: () => Promise<boolean>;
+  handleToggleMute: (isMuted: boolean) => Promise<void>;
+  handleToggleDeafen: (isDeafened: boolean) => Promise<void>;
+  handleToggleCamera: (isCameraOn: boolean) => Promise<void>;
+  handleSwitchCamera: () => Promise<void>;
 }
 
 function formatDuration(seconds: number): string {
@@ -222,46 +251,40 @@ function VoiceCallUIInner({
   onLeave,
   onMinimize,
   onAutoStartHandled,
+  activeCall,
+  isInCall,
+  isRemoteSpeaking,
+  isLocalSpeaking,
+  handleStartCall,
+  handleEndCall,
+  handleToggleMute,
+  handleToggleDeafen,
+  handleToggleCamera,
+  handleSwitchCamera,
 }: VoiceCallUIProps) {
   const currentUser = useAuthStore((s) => s.user);
   const currentUserId = currentUser?.id?.toString() || '0';
 
-  // ── Call state từ hook ─────────────────────────────────
-  const {
-    activeCall,
-    isConnecting,
-    isRinging,
-    isInCall,
-    hasIncomingCall,
-    isCaller,
-    handleStartCall,
-    handleAcceptCall,
-    handleDeclineCall,
-    handleEndCall,
-    handleToggleMute,
-    handleToggleDeafen,
-    handleToggleCamera,
-    clearCall,
-  } = useDMCall(conversationId, currentUserId);
-
   // Determine effective callType: from active call or from prop
-  const effectiveCallType = activeCall?.callType || propCallType;
-  const isVideoCall = effectiveCallType === 'VIDEO';
+  const hasAnyCameraOn = Boolean(activeCall?.callerCameraOn || activeCall?.receiverCameraOn);
 
   // ── Local state ─────────────────────────────────────────
   const [isMuted, setIsMuted] = useState(false);
   const [isDeafened, setIsDeafened] = useState(false);
-  const [isCameraOn, setIsCameraOn] = useState(isVideoCall);
+  const [isCameraOn, setIsCameraOn] = useState(propCallType === 'VIDEO');
   const [elapsed, setElapsed] = useState(0);
   const callStartTimeRef = useRef<number>(0);
   const hasStartedCallRef = useRef(false);
+  const lastEndedStatusRef = useRef<string | null>(null);
+  const controlsEnabled = Boolean(activeCall && activeCall.status === 'ACCEPTED');
+  const isVideoCall = propCallType === 'VIDEO' || hasAnyCameraOn || isCameraOn;
 
   // ── Video rendering state ────────────────────────────────
-  const [remoteVideoTrack, setRemoteVideoTrack] = useState<any>(null);
+  const [remoteVideoUid, setRemoteVideoUid] = useState<number | null>(null);
 
   // ── Auto-start call khi modal mở (nếu chưa có cuộc gọi) ──
   useEffect(() => {
-    if (visible && autoStart && !activeCall && !isConnecting && !isRinging && !hasStartedCallRef.current) {
+    if (visible && autoStart && !activeCall && !hasStartedCallRef.current) {
       hasStartedCallRef.current = true;
       console.log(`[VoiceCallUI] Auto-starting ${propCallType} call...`);
       handleStartCall(propCallType).finally(() => {
@@ -276,7 +299,7 @@ function VoiceCallUIInner({
     if (!visible) {
       hasStartedCallRef.current = false;
     }
-  }, [visible, autoStart, activeCall, isConnecting, isRinging, propCallType, handleStartCall, onAutoStartHandled]);
+  }, [visible, autoStart, activeCall, propCallType, handleStartCall, onAutoStartHandled]);
 
   // ── Timer ────────────────────────────────────────────────
   useEffect(() => {
@@ -297,15 +320,59 @@ function VoiceCallUIInner({
     }
   }, [visible, isInCall]);
 
+  useEffect(() => {
+    if (!activeCall) return;
+    const isCurrentUserCaller = String(activeCall.callerId || '') === currentUserId;
+    const myMutedState = isCurrentUserCaller ? activeCall.callerMuted : activeCall.receiverMuted;
+    const myDeafenedState = isCurrentUserCaller
+      ? activeCall.callerDeafened
+      : activeCall.receiverDeafened;
+    const myCameraState =
+      isCurrentUserCaller
+        ? activeCall.callerCameraOn
+        : activeCall.receiverCameraOn;
+    setIsMuted(Boolean(myMutedState));
+    setIsDeafened(Boolean(myDeafenedState));
+    if (typeof myCameraState === 'boolean') {
+      setIsCameraOn(myCameraState);
+    }
+  }, [activeCall, currentUserId]);
+
+  const isCurrentUserCaller = String(activeCall?.callerId || '') === currentUserId;
+  const remoteMuted = Boolean(
+    activeCall ? (isCurrentUserCaller ? activeCall.receiverMuted : activeCall.callerMuted) : false
+  );
+  const remoteDeafened = Boolean(
+    activeCall ? (isCurrentUserCaller ? activeCall.receiverDeafened : activeCall.callerDeafened) : false
+  );
+  const remoteCameraOn = Boolean(
+    activeCall ? (isCurrentUserCaller ? activeCall.receiverCameraOn : activeCall.callerCameraOn) : false
+  );
+  const isDualCameraActive = Boolean(isCameraOn && remoteCameraOn);
+  const shouldShowLocalMain = isCameraOn;
+  const shouldShowRemoteMain = !shouldShowLocalMain && remoteCameraOn;
+
   // ── Auto-dismiss khi cuộc gọi kết thúc ─────────────────
   useEffect(() => {
     if (visible && activeCall && (activeCall.status === 'ENDED' || activeCall.status === 'DECLINED' || activeCall.status === 'MISSED')) {
+      if (lastEndedStatusRef.current !== activeCall.status) {
+        lastEndedStatusRef.current = activeCall.status;
+        const message = 'Call ended. Returning to chat...';
+        if (Platform.OS === 'android') {
+          ToastAndroid.show(message, ToastAndroid.SHORT);
+        } else {
+          Alert.alert('Call ended', message);
+        }
+      }
       const timer = setTimeout(() => {
         onLeave?.();
       }, 1000);
       return () => clearTimeout(timer);
     }
-  }, [visible, activeCall?.status]);
+    if (!activeCall || activeCall.status === 'ACCEPTED' || activeCall.status === 'PENDING') {
+      lastEndedStatusRef.current = null;
+    }
+  }, [visible, activeCall, onLeave]);
 
   // ── Handlers ────────────────────────────────────────────
   const handleToggleMuteLocal = useCallback(() => {
@@ -340,12 +407,6 @@ function VoiceCallUIInner({
     onMinimize?.();
   }, [onMinimize]);
 
-  const handleSendMessagePress = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    // Đóng modal call và quay lại chat để nhắn tin
-    onSendMessage?.();
-  }, [onSendMessage]);
-
   // ── Speaking pulse ───────────────────────────────────────
   const livePulse = useSharedValue(1);
   useEffect(() => {
@@ -361,115 +422,25 @@ function VoiceCallUIInner({
 
   const pulseStyle = useAnimatedStyle(() => ({ opacity: livePulse.value }));
 
-  // ── Render: Connecting / Ringing (caller side) ──────────────
-  if (visible && (isConnecting || (isRinging && isCaller))) {
-    return (
-      <Modal visible={true} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <StatusBar barStyle="light-content" />
-          <Animated.View entering={FadeIn.duration(300)} style={styles.connectingContainer}>
-            <RingAnimation size={160} />
-            <View style={styles.connectingAvatar}>
-              {remoteUserId ? (
-                <UserAvatarWithActions
-                  user={{
-                    id: remoteUserId,
-                    username: remoteUserName,
-                    displayName: remoteUserName,
-                    avatar: remoteUserAvatar,
-                    avatarEffectId: remoteAvatarEffectId,
-                    bannerEffectId: remoteBannerEffectId,
-                    cardEffectId: remoteCardEffectId,
-                  }}
-                  size={100}
-                />
-              ) : (
-                <Avatar name={remoteUserName} uri={remoteUserAvatar} size={100} />
-              )}
-            </View>
-            <ThemedText style={styles.connectingText}>
-              {isVideoCall ? 'Video calling...' : 'Calling...'}
-            </ThemedText>
-            <ThemedText style={styles.connectingName}>{remoteUserName}</ThemedText>
-            <TouchableOpacity
-              style={styles.cancelBtn}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                handleLeave();
-              }}
-            >
-              <Ionicons name="call" size={28} color="#fff" style={{ transform: [{ rotate: '135deg' }] }} />
-            </TouchableOpacity>
-          </Animated.View>
-        </View>
-      </Modal>
-    );
-  }
+  useEffect(() => {
+    if (!visible) return;
+    agoraService.onRemoteVideo((uid) => {
+      const parsedUid = Number(uid);
+      if (Number.isFinite(parsedUid)) {
+        setRemoteVideoUid(parsedUid);
+      }
+    });
+    agoraService.onRemoteVideoRemoved(() => {
+      setRemoteVideoUid(null);
+    });
+    return () => {
+      agoraService.onRemoteVideo(() => undefined);
+      agoraService.onRemoteVideoRemoved(() => undefined);
+      setRemoteVideoUid(null);
+    };
+  }, [visible]);
 
-  // ── Render: Incoming Call (receiver side) ─────────────────
-  if (hasIncomingCall) {
-    return (
-      <Modal visible={true} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <StatusBar barStyle="light-content" />
-          <Animated.View entering={FadeIn.duration(300)} style={styles.incomingContainer}>
-            <RingAnimation size={160} />
-            <View style={styles.incomingAvatar}>
-              {remoteUserId ? (
-                <UserAvatarWithActions
-                  user={{
-                    id: remoteUserId,
-                    username: remoteUserName,
-                    displayName: remoteUserName,
-                    avatar: remoteUserAvatar,
-                    avatarEffectId: remoteAvatarEffectId,
-                    bannerEffectId: remoteBannerEffectId,
-                    cardEffectId: remoteCardEffectId,
-                  }}
-                  size={100}
-                />
-              ) : (
-                <Avatar name={remoteUserName} uri={remoteUserAvatar} size={100} />
-              )}
-            </View>
-            <ThemedText style={styles.incomingTitle}>
-              {isVideoCall ? 'Incoming video call' : 'Incoming voice call'}
-            </ThemedText>
-            <ThemedText style={styles.incomingName}>{remoteUserName}</ThemedText>
-
-            <View style={styles.incomingActions}>
-              {/* Decline */}
-              <TouchableOpacity
-                style={styles.declineBtn}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  handleDeclineCall();
-                  onLeave?.();
-                }}
-              >
-                <Ionicons name="call" size={28} color="#fff" style={{ transform: [{ rotate: '135deg' }] }} />
-              </TouchableOpacity>
-
-              {/* Accept */}
-              <TouchableOpacity
-                style={styles.acceptBtn}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  handleAcceptCall();
-                  // Enable camera for video calls
-                  if (isVideoCall) {
-                    setIsCameraOn(true);
-                  }
-                }}
-              >
-                <Ionicons name="call" size={32} color="#fff" />
-              </TouchableOpacity>
-            </View>
-          </Animated.View>
-        </View>
-      </Modal>
-    );
-  }
+  // Incoming/outgoing ringing overlays are removed in DM call flow.
 
   // ── Render: Active Call ───────────────────────────────────
   // Video call layout with video streams
@@ -487,6 +458,9 @@ function VoiceCallUIInner({
 
               <View style={styles.statusCenter}>
                 <ThemedText style={styles.channelLabel}>{remoteUserName}</ThemedText>
+                {activeCall?.status === 'PENDING' ? (
+                  <ThemedText style={styles.waitingText}>Waiting for other user to join...</ThemedText>
+                ) : null}
                 <View style={styles.timerBadge}>
                   <Ionicons name="time-outline" size={12} color="#fff" />
                   <ThemedText style={styles.timerText}>{formatDuration(elapsed)}</ThemedText>
@@ -495,13 +469,33 @@ function VoiceCallUIInner({
 
               <View style={[styles.statusDot, isInCall && styles.statusDotActive]} />
             </View>
+            {isCameraOn && controlsEnabled ? (
+              <TouchableOpacity style={styles.topRightFlipBtn} onPress={handleSwitchCamera} activeOpacity={0.8}>
+                <Ionicons name="camera-reverse-outline" size={18} color="#fff" />
+              </TouchableOpacity>
+            ) : null}
 
             {/* Main Video Area */}
             <View style={styles.videoMainArea}>
               {/* Remote Video / Avatar */}
               <View style={styles.remoteVideoCard}>
-                {remoteVideoTrack ? (
-                  <VideoRenderer track={remoteVideoTrack} style={styles.remoteVideo} />
+                {shouldShowLocalMain && RtcSurfaceView && Platform.OS !== 'web' ? (
+                  <RtcSurfaceView
+                    style={styles.remoteVideo}
+                    canvas={{
+                      uid: 0,
+                      sourceType: VideoSourceType?.VideoSourceCameraPrimary,
+                      renderMode: RenderModeType?.RenderModeHidden,
+                    }}
+                  />
+                ) : shouldShowRemoteMain && RtcSurfaceView && remoteVideoUid !== null ? (
+                  <RtcSurfaceView
+                    style={styles.remoteVideo}
+                    canvas={{
+                      uid: remoteVideoUid,
+                      renderMode: RenderModeType?.RenderModeHidden,
+                    }}
+                  />
                 ) : (
                   <View style={styles.remoteVideoPlaceholder}>
                     <UserAvatarWithActions
@@ -516,26 +510,80 @@ function VoiceCallUIInner({
                       }}
                       size={120}
                     />
-                    {isInCall && <Animated.View style={[styles.speakingGlow, pulseStyle]} />}
+                    {isInCall && isRemoteSpeaking && <Animated.View style={[styles.speakingGlow, pulseStyle]} />}
                   </View>
                 )}
                 <View style={styles.remoteVideoInfo}>
-                  <ThemedText style={styles.remoteVideoName}>{remoteUserName}</ThemedText>
+                  <ThemedText style={styles.remoteVideoName}>
+                    {shouldShowLocalMain ? (currentUser?.displayName || 'You') : remoteUserName}
+                  </ThemedText>
+                  <View style={styles.remoteIndicators}>
+                    {(shouldShowLocalMain ? isCameraOn : remoteCameraOn) && (
+                      <View style={[styles.indicatorBadge, styles.cameraBadge]}>
+                        <Ionicons name="videocam" size={12} color="#fff" />
+                      </View>
+                    )}
+                    {(shouldShowLocalMain ? isMuted : remoteMuted) && (
+                      <View style={styles.indicatorBadge}>
+                        <Ionicons name="mic-off" size={12} color="#fff" />
+                      </View>
+                    )}
+                    {(shouldShowLocalMain ? isDeafened : remoteDeafened) && (
+                      <View style={[styles.indicatorBadge, styles.deafenBadge]}>
+                        <Ionicons name="headset" size={12} color="#fff" />
+                      </View>
+                    )}
+                  </View>
                 </View>
               </View>
 
               {/* Local Video Preview (Picture-in-Picture) */}
-              <View style={styles.localVideoPip}>
-                {isCameraOn ? (
-                  <VideoPlaceholder label="Your camera" />
-                ) : (
-                  <View style={styles.localVideoOff}>
-                    <UserAvatarWithActions
-                      user={currentUser!}
-                      size={60}
-                      disabled={true}
+              <View style={[styles.localVideoPip, isDualCameraActive && styles.localVideoPipDual]}>
+                {shouldShowLocalMain ? (
+                  remoteCameraOn && RtcSurfaceView && remoteVideoUid !== null ? (
+                    <RtcSurfaceView
+                      style={styles.remoteVideo}
+                      canvas={{
+                        uid: remoteVideoUid,
+                        renderMode: RenderModeType?.RenderModeHidden,
+                      }}
                     />
-                  </View>
+                  ) : (
+                    <View style={styles.localVideoOff}>
+                      <UserAvatarWithActions
+                        user={{
+                          id: remoteUserId || '',
+                          username: remoteUserName,
+                          displayName: remoteUserName,
+                          avatar: remoteUserAvatar,
+                          avatarEffectId: remoteAvatarEffectId,
+                          bannerEffectId: remoteBannerEffectId,
+                          cardEffectId: remoteCardEffectId,
+                        }}
+                        size={60}
+                        disabled={true}
+                      />
+                    </View>
+                  )
+                ) : (
+                  isCameraOn && RtcSurfaceView && Platform.OS !== 'web' ? (
+                    <RtcSurfaceView
+                      style={styles.remoteVideo}
+                      canvas={{
+                        uid: 0,
+                        sourceType: VideoSourceType?.VideoSourceCameraPrimary,
+                        renderMode: RenderModeType?.RenderModeHidden,
+                      }}
+                    />
+                  ) : (
+                    <View style={styles.localVideoOff}>
+                      <UserAvatarWithActions
+                        user={currentUser!}
+                        size={60}
+                        disabled={true}
+                      />
+                    </View>
+                  )
                 )}
                 {/* Camera toggle button on PIP */}
                 <TouchableOpacity
@@ -558,9 +606,10 @@ function VoiceCallUIInner({
                 <ControlButton
                   icon="videocam"
                   iconOff="videocam-off"
-                  label={isCameraOn ? 'Cam On' : 'Cam Off'}
+                  label={isCameraOn ? 'Cam Off' : 'Cam On'}
                   isActive={isCameraOn}
                   onPress={handleToggleCameraLocal}
+                  disabled={!controlsEnabled}
                 />
                 {/* Mic Toggle */}
                 <ControlButton
@@ -569,13 +618,7 @@ function VoiceCallUIInner({
                   label={isMuted ? 'Unmute' : 'Mute'}
                   isActive={isMuted}
                   onPress={handleToggleMuteLocal}
-                />
-                {/* Message */}
-                <ControlButton
-                  icon="chatbubble-outline"
-                  label="Message"
-                  isActive={false}
-                  onPress={handleSendMessagePress}
+                  disabled={!controlsEnabled}
                 />
                 {/* Deafen Toggle */}
                 <ControlButton
@@ -584,6 +627,7 @@ function VoiceCallUIInner({
                   label={isDeafened ? 'Undeafen' : 'Deafen'}
                   isActive={isDeafened}
                   onPress={handleToggleDeafenLocal}
+                  disabled={!controlsEnabled}
                 />
               </View>
               <EndCallButton onPress={handleLeave} />
@@ -608,6 +652,9 @@ function VoiceCallUIInner({
 
             <View style={styles.statusCenter}>
               <ThemedText style={styles.channelLabel}>{remoteUserName}</ThemedText>
+                {activeCall?.status === 'PENDING' ? (
+                  <ThemedText style={styles.waitingText}>Waiting for other user to join...</ThemedText>
+                ) : null}
               <View style={styles.timerBadge}>
                 <Ionicons name="time-outline" size={12} color="#fff" />
                 <ThemedText style={styles.timerText}>{formatDuration(elapsed)}</ThemedText>
@@ -616,6 +663,11 @@ function VoiceCallUIInner({
 
             <View style={[styles.statusDot, isInCall && styles.statusDotActive]} />
           </View>
+          {isCameraOn && controlsEnabled ? (
+            <TouchableOpacity style={styles.topRightFlipBtn} onPress={handleSwitchCamera} activeOpacity={0.8}>
+              <Ionicons name="camera-reverse-outline" size={18} color="#fff" />
+            </TouchableOpacity>
+          ) : null}
 
           {/* Main Content */}
           <View style={styles.mainContent}>
@@ -640,9 +692,26 @@ function VoiceCallUIInner({
                     <Avatar name={remoteUserName} uri={remoteUserAvatar} size={140} />
                   )}
                 </View>
-                {isInCall && <Animated.View style={[styles.speakingGlow, pulseStyle]} />}
+                {isInCall && isRemoteSpeaking && <Animated.View style={[styles.speakingGlow, pulseStyle]} />}
                 <View style={styles.remoteUserInfo}>
                   <ThemedText style={styles.remoteUsername}>{remoteUserName}</ThemedText>
+                  <View style={styles.remoteIndicators}>
+                    {remoteCameraOn && (
+                      <View style={[styles.indicatorBadge, styles.cameraBadge]}>
+                        <Ionicons name="videocam" size={12} color="#fff" />
+                      </View>
+                    )}
+                    {remoteMuted && (
+                      <View style={styles.indicatorBadge}>
+                        <Ionicons name="mic-off" size={12} color="#fff" />
+                      </View>
+                    )}
+                    {remoteDeafened && (
+                      <View style={[styles.indicatorBadge, styles.deafenBadge]}>
+                        <Ionicons name="headset" size={12} color="#fff" />
+                      </View>
+                    )}
+                  </View>
                 </View>
               </View>
             </View>
@@ -664,6 +733,16 @@ function VoiceCallUIInner({
                   <ThemedText style={styles.selfUsername}>{currentUser?.displayName || 'You'}</ThemedText>
                 </View>
                 <View style={styles.selfIndicators}>
+                  {isCameraOn && (
+                    <View style={[styles.indicatorBadge, styles.cameraBadge]}>
+                      <Ionicons name="videocam" size={12} color="#fff" />
+                    </View>
+                  )}
+                  {isInCall && isLocalSpeaking && (
+                    <View style={[styles.indicatorBadge, styles.speakingBadge]}>
+                      <Ionicons name="radio" size={12} color="#fff" />
+                    </View>
+                  )}
                   {isMuted && (
                     <View style={styles.indicatorBadge}>
                       <Ionicons name="mic-off" size={12} color="#fff" />
@@ -682,6 +761,15 @@ function VoiceCallUIInner({
           {/* Control Bar */}
           <View style={styles.controlBar}>
             <View style={styles.controlButtons}>
+              {/* Camera Toggle */}
+              <ControlButton
+                icon="videocam"
+                iconOff="videocam-off"
+                label={isCameraOn ? 'Cam Off' : 'Cam On'}
+                isActive={isCameraOn}
+                onPress={handleToggleCameraLocal}
+                disabled={!controlsEnabled}
+              />
               {/* Mic Toggle */}
               <ControlButton
                 icon="mic"
@@ -689,13 +777,7 @@ function VoiceCallUIInner({
                 label={isMuted ? 'Unmute' : 'Mute'}
                 isActive={isMuted}
                 onPress={handleToggleMuteLocal}
-              />
-              {/* Message */}
-              <ControlButton
-                icon="chatbubble-outline"
-                label="Message"
-                isActive={false}
-                onPress={handleSendMessagePress}
+                disabled={!controlsEnabled}
               />
               {/* Deafen Toggle */}
               <ControlButton
@@ -704,6 +786,7 @@ function VoiceCallUIInner({
                 label={isDeafened ? 'Undeafen' : 'Deafen'}
                 isActive={isDeafened}
                 onPress={handleToggleDeafenLocal}
+                disabled={!controlsEnabled}
               />
             </View>
             <EndCallButton onPress={handleLeave} />
@@ -860,6 +943,11 @@ const styles = StyleSheet.create({
     color: '#fff',
     marginLeft: 4,
   },
+  waitingText: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.7)',
+    marginTop: 2,
+  },
   statusDot: {
     width: 10,
     height: 10,
@@ -868,6 +956,18 @@ const styles = StyleSheet.create({
   },
   statusDotActive: {
     backgroundColor: '#34c759',
+  },
+  topRightFlipBtn: {
+    position: 'absolute',
+    top: 92,
+    right: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 20,
   },
   // Video layout styles
   videoMainArea: {
@@ -919,6 +1019,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 2,
     borderColor: '#444',
+  },
+  localVideoPipDual: {
+    width: 140,
+    height: 190,
+    borderColor: '#666',
   },
   localVideoOff: {
     alignItems: 'center',
@@ -981,6 +1086,11 @@ const styles = StyleSheet.create({
   remoteUserInfo: {
     marginTop: Spacing.md,
     alignItems: 'center',
+  },
+  remoteIndicators: {
+    marginTop: Spacing.xs,
+    flexDirection: 'row',
+    gap: 4,
   },
   remoteUsername: {
     fontSize: 20,
@@ -1052,6 +1162,9 @@ const styles = StyleSheet.create({
   },
   deafenBadge: {
     backgroundColor: 'rgba(255, 149, 0, 0.9)',
+  },
+  speakingBadge: {
+    backgroundColor: 'rgba(52, 199, 89, 0.9)',
   },
   cameraBadge: {
     backgroundColor: 'rgba(52, 199, 89, 0.9)',

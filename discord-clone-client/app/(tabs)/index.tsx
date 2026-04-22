@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -32,6 +32,8 @@ import {
   ServerDetailsResponse,
   ServerResponse,
   getServerDetails,
+  markChannelAsRead,
+  markChannelAsUnread,
   uploadFile,
   updateServer,
 } from '@/services/serverService';
@@ -104,11 +106,17 @@ export default function HomeScreen() {
   const error = useServerStore((state) => state.error);
   const fetchServers = useServerStore((state) => state.fetchServers);
   const setActiveServerId = useServerStore((state) => state.setActiveServerId);
+  const channelUnreadByServer = useServerStore((state) => state.channelUnreadByServer);
+  const setChannelUnreadMap = useServerStore((state) => state.setChannelUnreadMap);
+  const incrementChannelUnread = useServerStore((state) => state.incrementChannelUnread);
+  const clearChannelUnread = useServerStore((state) => state.clearChannelUnread);
   const clearError = useServerStore((state) => state.clearError);
   const user = useAuthStore((state) => state.user);
   const conversations = useDMStore((state) => state.conversations);
   const isLoadingConversations = useDMStore((state) => state.isLoadingConversations);
   const fetchConversations = useDMStore((state) => state.fetchConversations);
+  const markConversationAsRead = useDMStore((state) => state.markConversationAsRead);
+  const markConversationAsUnread = useDMStore((state) => state.markConversationAsUnread);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [activeServerDetails, setActiveServerDetails] = useState<ServerDetailsResponse | null>(null);
@@ -136,6 +144,13 @@ export default function HomeScreen() {
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [isUpdatingServerIcon, setIsUpdatingServerIcon] = useState(false);
+  const activeServerIdRef = useRef<number | null>(null);
+  const activeChannelIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    activeServerIdRef.current = activeServerId;
+    activeChannelIdRef.current = activeChannelId;
+  }, [activeServerId, activeChannelId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -150,6 +165,28 @@ export default function HomeScreen() {
 
     void fetchConversations();
   }, [fetchConversations, isDmPanelActive]);
+
+  // Realtime updates for each DM row while DM panel is active.
+  useEffect(() => {
+    if (!isDmPanelActive || conversations.length === 0) return;
+
+    const subscriptions: Array<{ destination: string; listener: (message: any) => void }> = [];
+
+    conversations.forEach((conversation) => {
+      const destination = `/topic/dm/${conversation.id}`;
+      const listener = (message: any) => {
+        useDMStore.getState().applyRealtimeQueueEvent(message);
+      };
+      subscriptions.push({ destination, listener });
+      void socketService.subscribe(destination, listener);
+    });
+
+    return () => {
+      subscriptions.forEach(({ destination, listener }) => {
+        socketService.unsubscribe(destination, listener);
+      });
+    };
+  }, [isDmPanelActive, conversations]);
 
   useEffect(() => {
     const loadServerDetails = async () => {
@@ -177,6 +214,16 @@ export default function HomeScreen() {
         const nextActiveChannel = firstCategoryChannel || firstUncategorizedTextChannel || null;
 
         setActiveChannelId(nextActiveChannel?.id ?? null);
+        const unreadByChannel: Record<number, number> = {};
+        (details.categories || []).forEach((category) => {
+          (category.channels || []).forEach((channel) => {
+            unreadByChannel[channel.id] = channel.unreadCount ?? 0;
+          });
+        });
+        (details.channels || []).forEach((channel) => {
+          unreadByChannel[channel.id] = channel.unreadCount ?? 0;
+        });
+        setChannelUnreadMap(activeServerId, unreadByChannel);
       } catch {
         setActiveServerDetails(null);
         setActiveChannelId(null);
@@ -187,7 +234,66 @@ export default function HomeScreen() {
     };
 
     void loadServerDetails();
-  }, [activeServerId]);
+  }, [activeServerId, setChannelUnreadMap]);
+
+  useEffect(() => {
+    if (!user?.id || servers.length === 0) {
+      return;
+    }
+
+    let disposed = false;
+    const subscriptions: Array<{ destination: string; listener: (message: any) => void }> = [];
+
+    const subscribeServerChannels = async () => {
+      const detailsResults = await Promise.allSettled(
+        servers.map((server) => getServerDetails(server.id)),
+      );
+
+      if (disposed) return;
+
+      detailsResults.forEach((result, index) => {
+        if (result.status !== 'fulfilled') return;
+        const serverId = servers[index]?.id;
+        if (!serverId) return;
+
+        const details = result.value;
+        const textChannels = [
+          ...(details.categories || []).flatMap((category) => category.channels || []),
+          ...(details.channels || []),
+        ].filter((channel) => channel.type === 'TEXT');
+
+        textChannels.forEach((channel) => {
+          const destination = `/topic/channel/${channel.id}`;
+          const listener = (message: any) => {
+            const senderId = Number(message?.senderId);
+            if (Number.isFinite(senderId) && senderId === Number(user.id)) {
+              return;
+            }
+
+            const isViewingThisChannel =
+              activeServerIdRef.current === serverId &&
+              activeChannelIdRef.current === channel.id;
+            if (isViewingThisChannel) {
+              return;
+            }
+
+            incrementChannelUnread(serverId, channel.id);
+          };
+          subscriptions.push({ destination, listener });
+          void socketService.subscribe(destination, listener);
+        });
+      });
+    };
+
+    void subscribeServerChannels();
+
+    return () => {
+      disposed = true;
+      subscriptions.forEach(({ destination, listener }) => {
+        socketService.unsubscribe(destination, listener);
+      });
+    };
+  }, [incrementChannelUnread, servers, user?.id]);
 
   useEffect(() => {
     if (!activeServerId) {
@@ -441,6 +547,44 @@ export default function HomeScreen() {
     );
   }, [fetchServers, selectedServerForOptions]);
 
+  const handleMarkServerAsReadFromOptions = useCallback(async () => {
+    if (!selectedServerForOptions) return;
+
+    setIsServerActionLoading(true);
+    try {
+      const details = await getServerDetails(selectedServerForOptions.id);
+      const textChannels = [
+        ...(details.categories || []).flatMap((category) => category.channels || []),
+        ...(details.channels || []),
+      ].filter((channel) => channel.type === 'TEXT');
+
+      if (textChannels.length > 0) {
+        await Promise.allSettled(
+          textChannels.map((channel) => markChannelAsRead(channel.id)),
+        );
+      }
+
+      const zeroUnreadMap: Record<number, number> = {};
+      textChannels.forEach((channel) => {
+        zeroUnreadMap[channel.id] = 0;
+      });
+      setChannelUnreadMap(selectedServerForOptions.id, zeroUnreadMap);
+      await fetchServers();
+
+      if (activeServerId === selectedServerForOptions.id) {
+        const refreshed = await getServerDetails(selectedServerForOptions.id);
+        setActiveServerDetails(refreshed);
+      }
+
+      setShowServerOptionsModal(false);
+      setSelectedServerForOptions(null);
+    } catch {
+      Alert.alert('Error', 'Could not mark server as read.');
+    } finally {
+      setIsServerActionLoading(false);
+    }
+  }, [activeServerId, fetchServers, selectedServerForOptions, setChannelUnreadMap]);
+
   const submitRenameServer = useCallback(async () => {
     if (!serverToRename) return;
 
@@ -482,12 +626,17 @@ export default function HomeScreen() {
         return;
       }
 
+      const serverId = activeServerId ?? channel.serverId;
+      if (serverId) {
+        clearChannelUnread(serverId, channel.id);
+      }
+
       router.push({
         pathname: '/channel/[channelId]',
         params: { channelId: String(channel.id) },
       });
     },
-    [router, activeServerId],
+    [router, activeServerId, clearChannelUnread],
   );
 
   const refreshServerDetails = useCallback(async () => {
@@ -581,6 +730,67 @@ export default function HomeScreen() {
     [isManager, refreshServerDetails],
   );
 
+  const handleChannelLongPress = useCallback(
+    (channel: ChannelResponse) => {
+      if (channel.type !== 'TEXT') return;
+      const serverId = activeServerId ?? channel.serverId;
+      if (!serverId) return;
+      const currentUnread =
+        (channelUnreadByServer[serverId] || {})[channel.id] ??
+        channel.unreadCount ??
+        0;
+      const hasUnread = currentUnread > 0;
+      const readToggleAction = hasUnread
+        ? {
+            text: 'Mark as read',
+            onPress: () => {
+              clearChannelUnread(serverId, channel.id);
+              void markChannelAsRead(channel.id);
+            },
+          }
+        : {
+            text: 'Mark as unread',
+            onPress: () => {
+              incrementChannelUnread(serverId, channel.id);
+              void markChannelAsUnread(channel.id);
+            },
+          };
+
+      if (isManager) {
+        Alert.alert(
+          `#${channel.name}`,
+          'Manage this channel.',
+          [
+            readToggleAction,
+            { text: 'Edit', onPress: () => openEditChannel(channel) },
+            {
+              text: 'Delete',
+              style: 'destructive',
+              onPress: () => handleDeleteChannel(channel),
+            },
+            { text: 'Cancel', style: 'cancel' },
+          ],
+        );
+        return;
+      }
+
+      Alert.alert(
+        `#${channel.name}`,
+        'Update read status for this channel.',
+        [readToggleAction, { text: 'Cancel', style: 'cancel' }],
+      );
+    },
+    [
+      activeServerId,
+      channelUnreadByServer,
+      clearChannelUnread,
+      handleDeleteChannel,
+      incrementChannelUnread,
+      isManager,
+      openEditChannel,
+    ],
+  );
+
   const handleInviteCodeChanged = useCallback((newCode: string) => {
     setActiveServerDetails((prev) => {
       if (!prev) return prev;
@@ -616,11 +826,20 @@ export default function HomeScreen() {
           lastMessageTime={item.lastMessage?.createdAt || item.updatedAt}
           unreadCount={item.unreadCount}
           onPress={() => handleOpenConversation(item.id)}
+          onLongPress={() => {
+            const hasUnread = (item.unreadCount ?? 0) > 0;
+            Alert.alert('Conversation options', 'Update read status for this conversation.', [
+              hasUnread
+                ? { text: 'Mark as read', onPress: () => { void markConversationAsRead(item.id); } }
+                : { text: 'Mark as unread', onPress: () => { void markConversationAsUnread(item.id); } },
+              { text: 'Cancel', style: 'cancel' },
+            ]);
+          }}
           index={index}
         />
       );
     },
-    [handleOpenConversation, user],
+    [handleOpenConversation, markConversationAsRead, markConversationAsUnread, user],
   );
 
   const dmConversationKey = useCallback(
@@ -766,10 +985,12 @@ export default function HomeScreen() {
               <ServerChannelList
                 serverDetails={activeServerDetails}
                 activeChannelId={activeChannelId}
+                unreadByChannelId={activeServerId ? (channelUnreadByServer[activeServerId] || {}) : {}}
                 isLoading={isLoadingServerDetails}
                 isManager={isManager}
                 voiceChannelCounts={voiceChannelCounts}
                 onChannelPress={handleChannelPress}
+                onChannelLongPress={handleChannelLongPress}
                 onAddCategory={openCreateCategory}
                 onAddChannel={openCreateChannel}
                 onEditCategory={openEditCategory}
@@ -836,6 +1057,17 @@ export default function HomeScreen() {
               >
                 <Ionicons name="people-outline" size={18} color={DiscordColors.textSecondary} />
                 <ThemedText style={styles.serverOptionText}>View Members</ThemedText>
+              </Pressable>
+
+              <Pressable
+                style={styles.serverOptionButton}
+                onPress={() => {
+                  void handleMarkServerAsReadFromOptions();
+                }}
+                disabled={isServerActionLoading}
+              >
+                <Ionicons name="checkmark-done-outline" size={18} color={DiscordColors.textSecondary} />
+                <ThemedText style={styles.serverOptionText}>Mark All as Read</ThemedText>
               </Pressable>
 
               {selectedServerIsOwner ? (

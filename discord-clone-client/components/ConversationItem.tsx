@@ -22,6 +22,8 @@ interface ConversationItemProps {
   unreadCount?: number;
   /** Called when the conversation is pressed */
   onPress: () => void;
+  /** Called when the conversation is long pressed */
+  onLongPress?: () => void;
   /** Index in the list, used for staggered animation delay */
   index?: number;
 }
@@ -34,6 +36,7 @@ function ConversationItemInner({
   lastMessageTime,
   unreadCount = 0,
   onPress,
+  onLongPress,
   index = 0,
 }: ConversationItemProps) {
   const hasUnread = unreadCount > 0;
@@ -43,6 +46,8 @@ function ConversationItemInner({
       <TouchableOpacity
         style={styles.containerWrapper}
         onPress={onPress}
+        onLongPress={onLongPress}
+        delayLongPress={260}
         activeOpacity={0.6}
       >
         <UserRowNameplate cardEffectId={participant.cardEffectId} style={styles.container}>
@@ -93,11 +98,7 @@ function ConversationItemInner({
               </ThemedText>
 
               {hasUnread && (
-                <View style={styles.badge}>
-                  <ThemedText style={styles.badgeText}>
-                    {unreadCount > 99 ? '99+' : unreadCount}
-                  </ThemedText>
-                </View>
+                <View style={styles.unreadDot} />
               )}
             </View>
           </View>
@@ -163,18 +164,11 @@ const styles = StyleSheet.create({
   unreadTime: {
     color: DiscordColors.textPrimary,
   },
-  badge: {
+  unreadDot: {
     backgroundColor: DiscordColors.red,
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 6,
-  },
-  badgeText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '800',
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 4,
   },
 });

@@ -1,5 +1,13 @@
 import { create } from 'zustand';
 import { dmCallService, DMCallState } from '@/services/dmCallService';
+import { AGORA_APP_ID } from '@/services/config';
+
+function toDmAgoraChannelName(conversationId: string): string {
+  const normalized = String(conversationId || '')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .slice(0, 54);
+  return `dm${normalized || 'room'}`;
+}
 
 interface DMCallStore {
   // State
@@ -69,12 +77,15 @@ export const useDMCallStore = create<DMCallStore>((set, get) => ({
       if (callState) {
         // Lấy Agora token sau khi accept
         const tokenData = await dmCallService.getToken(conversationId, userId);
+        const normalizedToken = tokenData?.token?.trim() || null;
 
         set({
           activeCall: callState,
-          agoraToken: tokenData?.token ?? null,
-          agoraAppId: tokenData?.appId ?? null,
-          agoraChannelName: tokenData?.channelName ?? null,
+          agoraToken: normalizedToken,
+          // Keep DM call on the same Agora project as server voice channel.
+          // Backend appId can be different in local env and causes token/auth mismatch (error 110).
+          agoraAppId: AGORA_APP_ID,
+          agoraChannelName: toDmAgoraChannelName(conversationId),
           isConnecting: false,
           isRinging: false
         });
@@ -206,15 +217,16 @@ export const useDMCallStore = create<DMCallStore>((set, get) => ({
     try {
       const tokenData = await dmCallService.getToken(conversationId, userId);
       if (tokenData) {
+        const normalizedToken = tokenData.token?.trim() || null;
         set({
-          agoraToken: tokenData.token,
-          agoraAppId: tokenData.appId,
-          agoraChannelName: tokenData.channelName,
+          agoraToken: normalizedToken,
+          agoraAppId: AGORA_APP_ID,
+          agoraChannelName: toDmAgoraChannelName(conversationId),
         });
         return {
-          token: tokenData.token,
-          appId: tokenData.appId,
-          channelName: tokenData.channelName,
+          token: normalizedToken ?? '',
+          appId: AGORA_APP_ID,
+          channelName: toDmAgoraChannelName(conversationId),
         };
       }
       return null;

@@ -51,6 +51,7 @@ export interface ChannelResponse {
   categoryId: number | null;
   bitrate?: number;
   userLimit?: number;
+  unreadCount?: number;
   createdAt?: string;
 }
 
@@ -181,6 +182,14 @@ export const searchMembersInServer = async (
 export const getChannelById = async (channelId: number): Promise<ChannelResponse> => {
   const response = await apiClient.get<ChannelResponse>(`/channels/${channelId}`);
   return response.data;
+};
+
+export const markChannelAsRead = async (channelId: number): Promise<void> => {
+  await apiClient.post(`/channels/${channelId}/read`);
+};
+
+export const markChannelAsUnread = async (channelId: number): Promise<void> => {
+  await apiClient.post(`/channels/${channelId}/unread`);
 };
 
 export const createCategory = async (

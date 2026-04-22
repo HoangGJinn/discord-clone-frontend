@@ -110,11 +110,7 @@ export function ServerSidebar({
               {isActive ? <View style={styles.activeIndicator} /> : null}
 
               {unreadCount > 0 ? (
-                <View style={styles.badge}>
-                  <ThemedText style={styles.badgeText}>
-                    {unreadCount > 9 ? '9+' : String(unreadCount)}
-                  </ThemedText>
-                </View>
+                <View style={styles.unreadDot} />
               ) : null}
             </Pressable>
           );
@@ -207,25 +203,16 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: '#fff',
   },
-  badge: {
+  unreadDot: {
     position: 'absolute',
-    right: -4,
-    bottom: -2,
-    minWidth: 16,
-    height: 16,
+    right: -2,
+    bottom: 0,
+    width: 12,
+    height: 12,
     borderRadius: 999,
-    paddingHorizontal: 4,
     backgroundColor: DiscordColors.red,
     borderWidth: 2,
     borderColor: DiscordColors.tertiaryBackground,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  badgeText: {
-    color: '#fff',
-    fontSize: 9,
-    fontWeight: '800',
-    lineHeight: 10,
   },
   addButton: {
     width: 48,

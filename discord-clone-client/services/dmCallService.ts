@@ -1,4 +1,5 @@
 import apiClient from '@/api/client';
+import { isAxiosError } from 'axios';
 
 export interface DMCallState {
   callId: string;
@@ -113,6 +114,10 @@ class DMCallService {
       });
       return response.data;
     } catch (error) {
+      // Idempotent behavior: call may already be ended by the other peer.
+      if (isAxiosError(error) && error.response?.status === 404) {
+        return null;
+      }
       console.error('[DMCallService] endCall error:', error);
       return null;
     }
@@ -138,6 +143,10 @@ class DMCallService {
       });
       return response.data;
     } catch (error) {
+      // Expected when call is still PENDING (backend only accepts state updates after ACCEPTED).
+      if (isAxiosError(error) && error.response?.status === 404) {
+        return null;
+      }
       console.error('[DMCallService] updateState error:', error);
       return null;
     }
