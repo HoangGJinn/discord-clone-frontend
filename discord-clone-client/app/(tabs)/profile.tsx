@@ -1,211 +1,422 @@
-import { Avatar } from '@/components/Avatar';
-import { StatusSelector, UserStatus } from '@/components/StatusSelector';
 import apiClient from '@/api/client';
-import React, { useState } from 'react';
-import { 
-  View, 
-  StyleSheet, 
-  TouchableOpacity, 
-  ScrollView, 
-  Alert, 
-  RefreshControl 
-} from 'react-native';
-import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
+import { Avatar } from '@/components/Avatar';
+import { BACKGROUND_EFFECTS, NAMEPLATE_EFFECTS } from '@/constants/profileEffects';
+import { useEffectStore } from '@/store/useEffectStore';
+import { Image } from 'expo-image';
 import { ThemedText } from '@/components/themed-text';
-import { useAuthStore } from '@/store/useAuthStore';
 import { DiscordColors, Spacing } from '@/constants/theme';
-import { DiscordButton } from '@/components/DiscordButton';
+import { useAuthStore } from '@/store/useAuthStore';
 import { Ionicons } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import React, { useCallback, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import socketService from '@/services/socketService';
+
+type UserStatus = 'ONLINE' | 'IDLE' | 'DND' | 'OFFLINE';
+
+interface StatusOption {
+  value: UserStatus;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+}
+
+const STATUS_OPTIONS: StatusOption[] = [
+  { value: 'ONLINE', label: 'Trực tuyến', icon: 'ellipse', color: '#23A559' },
+  { value: 'IDLE', label: 'Chờ', icon: 'moon', color: '#F2A31A' },
+  { value: 'DND', label: 'Vui Lòng Không Làm Phiền', icon: 'remove-circle', color: '#F23F43' },
+];
+
+const normalizeStatus = (status?: string): UserStatus => {
+  const value = String(status || 'OFFLINE').toUpperCase();
+  if (value === 'ONLINE') return 'ONLINE';
+  if (value === 'IDLE') return 'IDLE';
+  if (value === 'DND') return 'DND';
+  return 'OFFLINE';
+};
 
 export default function ProfileScreen() {
-  const { user, logout, updateUser } = useAuthStore();
+  const { user, logout, updateUser, refreshProfile } = useAuthStore();
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
+  const [isSettingsVisible, setIsSettingsVisible] = useState(false);
+  const [isAccountVisible, setIsAccountVisible] = useState(false);
+  const [isStatusVisible, setIsStatusVisible] = useState(false);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
-  const handleStatusChange = async (status: UserStatus) => {
-    try {
-      await apiClient.put('/users/me/status', { status });
-      updateUser({ status });
-      Alert.alert('Success', 'Status updated successfully');
-    } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to update status');
-    }
-  };
-
-  const handleLogout = () => {
-    Alert.alert(
-      'Log Out',
-      'Are you sure you want to log out?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Log Out',
-          style: 'destructive',
-          onPress: async () => {
-            await logout();
-          },
-        },
-      ]
-    );
-  };
-
-  const onRefresh = React.useCallback(() => {
+  const onRefresh = useCallback(() => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 1000);
+    setTimeout(() => setRefreshing(false), 800);
   }, []);
 
-  const getAvatarColor = (name: string) => {
-    const colors = [
-      '#5865F2', '#57F287', '#FEE75C', '#EB459E', '#ED4245',
-      '#3BA55C', '#FAA61A', '#9B84EE', '#F47FFF', '#00D4AA',
-    ];
+  const handleLogout = useCallback(() => {
+    Alert.alert('Đăng xuất', 'Bạn có chắc muốn đăng xuất không?', [
+      { text: 'Hủy', style: 'cancel' },
+      {
+        text: 'Đăng xuất',
+        style: 'destructive',
+        onPress: async () => {
+          await logout();
+        },
+      },
+    ]);
+  }, [logout]);
+
+  const handleStatusChange = useCallback(
+    async (status: UserStatus) => {
+      if (isUpdatingStatus) {
+        return;
+      }
+
+      if (!user?.id) {
+        Alert.alert('Lỗi', 'Không tìm thấy người dùng để cập nhật trạng thái.');
+        return;
+      }
+
+      try {
+        setIsUpdatingStatus(true);
+
+        if (!socketService.isConnected()) {
+          await socketService.connect().catch(() => undefined);
+        }
+
+        await apiClient.put('/users/me/status', null, {
+          params: {
+            userId: Number(user.id),
+            status,
+          },
+        });
+        updateUser({ status });
+        await refreshProfile();
+
+        setIsStatusVisible(false);
+      } catch (err: any) {
+        const detail =
+          err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          err?.message ||
+          'Không thể cập nhật trạng thái.';
+        Alert.alert('Lỗi cập nhật trạng thái', String(detail));
+      } finally {
+        setIsUpdatingStatus(false);
+      }
+    },
+    [isUpdatingStatus, refreshProfile, updateUser, user?.id],
+  );
+
+  const avatarColor = useMemo(() => {
+    if (!user?.username) {
+      return DiscordColors.blurple;
+    }
+
+    const colors = ['#5865F2', '#3A3FF0', '#5C57F2', '#7B4EF1', '#4B5AE2'];
     let hash = 0;
-    for (let i = 0; i < name.length; i++) {
-      hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    for (let index = 0; index < user.username.length; index += 1) {
+      hash = user.username.charCodeAt(index) + ((hash << 5) - hash);
     }
     return colors[Math.abs(hash) % colors.length];
-  };
+  }, [user?.username]);
+
+  const isNitro = useMemo(() => Boolean(user?.isPremium), [user?.isPremium]);
 
   if (!user) {
     return (
       <View style={[styles.container, styles.center]}>
-         <ThemedText style={styles.emptyText}>Please login to see your profile.</ThemedText>
+        <ThemedText style={styles.emptyText}>Vui lòng đăng nhập để xem hồ sơ.</ThemedText>
       </View>
     );
   }
 
-  const avatarColor = getAvatarColor(user.username);
-  const isPremium = user.role?.includes('ROLE_PREMIUM');
+  const currentStatus = normalizeStatus(user.status);
+  const statusOption = STATUS_OPTIONS.find((option) => option.value === currentStatus) || STATUS_OPTIONS[0];
+  
+  const getEffectById = useEffectStore((state) => state.getEffectById);
+  const dynamicBgEffect = isNitro && user.bannerEffectId ? getEffectById(user.bannerEffectId) : null;
+  const staticBgEffect = isNitro && user.bannerEffectId && !dynamicBgEffect ? BACKGROUND_EFFECTS.find((e) => String(e.id) === String(user.bannerEffectId)) : null;
+  const activeBgEffectUri = dynamicBgEffect ? dynamicBgEffect.imageUrl : staticBgEffect?.uri;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <ScrollView 
+      <ScrollView
         contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl 
-            refreshing={refreshing} 
-            onRefresh={onRefresh} 
+        refreshControl={(
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
             tintColor={DiscordColors.textSecondary}
           />
-        }
+        )}
       >
-        {/* Banner with Dynamic Color */}
-        <Animated.View entering={FadeIn.duration(600)} style={styles.banner}>
-           <View style={[styles.bannerOverlay, { backgroundColor: avatarColor }]} />
-        </Animated.View>
-        
-        <View style={styles.profileHeader}>
-          <Animated.View entering={FadeInDown.delay(200).springify()}>
-            <Avatar 
-                name={user.username} 
-                uri={user.avatar} 
-                size={100} 
-                status={user.status as any || 'ONLINE'}
-                style={styles.avatarShift}
+        <View style={styles.banner}>
+          <View style={[styles.bannerOverlay, { backgroundColor: avatarColor }]} />
+          {activeBgEffectUri && (
+            <Image
+              source={activeBgEffectUri}
+              style={StyleSheet.absoluteFill}
+              pointerEvents="none"
+              contentFit="cover"
             />
-          </Animated.View>
+          )}
 
-          <Animated.View entering={FadeInDown.delay(300).springify()} style={styles.nameSection}>
-            <View style={styles.titleRow}>
-               <ThemedText style={styles.displayName}>
-                 {user.displayName || user.username}
-               </ThemedText>
-               <TouchableOpacity style={styles.editCircleBtn}>
-                  <Ionicons name="pencil" size={16} color={DiscordColors.textPrimary} />
-               </TouchableOpacity>
-            </View>
-            <ThemedText style={styles.username}>
-              @{user.username}
-            </ThemedText>
-            {isPremium && (
-               <View style={styles.premiumBadge}>
-                  <ThemedText style={styles.premiumText}>USER_PREMIUM</ThemedText>
-               </View>
-            )}
-          </Animated.View>
+          <View style={styles.bannerActions}>
+            <TouchableOpacity style={styles.bannerIconBtn}>
+              <Ionicons name="mail-outline" size={18} color={DiscordColors.textPrimary} />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.nitroBadge} onPress={() => router.push('/nitro')}>
+              <Ionicons
+                name={isNitro ? 'sparkles' : 'diamond-outline'}
+                size={14}
+                color={DiscordColors.textPrimary}
+              />
+              <ThemedText style={styles.nitroText}>Nitro</ThemedText>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.bannerIconBtn} onPress={() => setIsSettingsVisible(true)}>
+              <Ionicons name="settings" size={18} color={DiscordColors.textPrimary} />
+            </TouchableOpacity>
+          </View>
         </View>
 
-        <Animated.View 
-          entering={FadeInDown.delay(400).springify()}
-          style={styles.card}
-        >
-          {/* Status Section */}
-          <View style={styles.section}>
-            <ThemedText style={styles.sectionTitle}>STATUS</ThemedText>
-            <StatusSelector
-              currentStatus={user.status as UserStatus}
-              onSelectStatus={handleStatusChange}
+        <View style={styles.profileHeader}>
+          <TouchableOpacity
+            style={styles.avatarWrap}
+            onPress={() => setIsStatusVisible(true)}
+            activeOpacity={0.8}
+          >
+            <Avatar
+              name={user.displayName || user.username}
+              uri={user.avatar}
+              size={84}
+              status={currentStatus}
+              avatarEffectId={isNitro ? user.avatarEffectId : undefined}
             />
-          </View>
+          </TouchableOpacity>
 
-          <View style={styles.divider} />
+          <TouchableOpacity style={styles.hobbyBtn}>
+            <Ionicons name="add" size={20} color={DiscordColors.textPrimary} />
+            <ThemedText style={styles.hobbyText}>Sở thích mới</ThemedText>
+          </TouchableOpacity>
 
-          {/* Bio Section */}
-          <View style={styles.section}>
-            <ThemedText style={styles.sectionTitle}>ABOUT ME</ThemedText>
-            <ThemedText style={styles.bioText}>
-              {user.bio || "No bio yet. Tap edit to add one!"}
-            </ThemedText>
-          </View>
-
-          <View style={styles.divider} />
-
-          {/* Account Info Section */}
-          <View style={styles.section}>
-             <ThemedText style={styles.sectionTitle}>ACCOUNT INFORMATION</ThemedText>
-             
-             <View style={styles.infoItem}>
-                <Ionicons name="mail-outline" size={20} color={DiscordColors.textSecondary} />
-                <View style={styles.infoContent}>
-                   <ThemedText style={styles.infoLabel}>Email</ThemedText>
-                   <ThemedText style={styles.infoValue}>{user.email}</ThemedText>
+          <View style={styles.nameSection}>
+            <ThemedText style={styles.displayName}>{user.displayName || user.username}</ThemedText>
+            <View style={styles.usernameRow}>
+              <ThemedText style={styles.username}>@{user.username}</ThemedText>
+              {isNitro ? (
+                <View style={styles.usernameNitroBadge}>
+                  <Ionicons name="sparkles" size={12} color="#FEE75C" />
+                  <ThemedText style={styles.usernameNitroText}>NITRO</ThemedText>
                 </View>
-             </View>
-
-             <View style={styles.infoItem}>
-                <Ionicons name="person-outline" size={20} color={DiscordColors.textSecondary} />
-                <View style={styles.infoContent}>
-                   <ThemedText style={styles.infoLabel}>User ID</ThemedText>
-                   <ThemedText style={styles.infoValue}>{user.id}</ThemedText>
-                </View>
-             </View>
+              ) : null}
+            </View>
           </View>
 
-          <View style={styles.divider} />
+          <TouchableOpacity
+            style={styles.editProfileBtn}
+            onPress={() => router.push('/profile/edit')}
+          >
+            <Ionicons name="pencil" size={18} color="#fff" />
+            <ThemedText style={styles.editProfileText}>Sửa Hồ Sơ</ThemedText>
+          </TouchableOpacity>
+        </View>
 
-          {/* Actions Section */}
-          <View style={styles.section}>
-             <TouchableOpacity style={styles.actionRow}>
-                <Ionicons name="key-outline" size={20} color={DiscordColors.textSecondary} />
-                <ThemedText style={styles.actionText}>Change Password</ThemedText>
-                <Ionicons name="chevron-forward" size={20} color={DiscordColors.textMuted} />
-             </TouchableOpacity>
-
-             <TouchableOpacity style={styles.actionRow} onPress={() => router.push('/(tabs)/friends')}>
-                <Ionicons name="people-outline" size={20} color={DiscordColors.textSecondary} />
-                <ThemedText style={styles.actionText}>Friends</ThemedText>
-                <Ionicons name="chevron-forward" size={20} color={DiscordColors.textMuted} />
-             </TouchableOpacity>
-
-             <TouchableOpacity style={styles.actionRow}>
-                <Ionicons name="diamond-outline" size={20} color={DiscordColors.textSecondary} />
-                <ThemedText style={styles.actionText}>Get Premium</ThemedText>
-                <Ionicons name="chevron-forward" size={20} color={DiscordColors.textMuted} />
-             </TouchableOpacity>
+        <View style={styles.card}>
+          <View style={styles.rowBetween}>
+            <ThemedText style={styles.cardTitle}>Trạng thái hiện tại</ThemedText>
+            <View style={styles.statusPill}>
+              <Ionicons name={statusOption.icon} size={12} color={statusOption.color} />
+              <ThemedText style={styles.statusPillText}>{statusOption.label}</ThemedText>
+            </View>
           </View>
-        </Animated.View>
+          <ThemedText style={styles.cardSubtitle}>{user.bio || 'Chưa có giới thiệu cá nhân.'}</ThemedText>
+        </View>
 
-        <View style={styles.footer}>
-           <DiscordButton 
-              title="Log Out" 
-              variant="danger" 
-              onPress={handleLogout}
-              style={styles.logoutBtn}
-           />
+        <View style={styles.card}>
+          <ThemedText style={styles.cardTitle}>Gia Nhập Từ</ThemedText>
+          <View style={styles.inlineRow}>
+            <Ionicons name="logo-discord" size={20} color={DiscordColors.textSecondary} />
+            <ThemedText style={styles.joinedText}>5 thg 10, 2023</ThemedText>
+          </View>
+        </View>
+
+        <TouchableOpacity style={styles.card} onPress={() => router.push('/(tabs)/friends')}>
+          <View style={styles.rowBetween}>
+            <ThemedText style={styles.cardTitle}>Bạn bè</ThemedText>
+            <Ionicons name="chevron-forward" size={18} color={DiscordColors.textMuted} />
+          </View>
+          <ThemedText style={styles.cardSubtitle}>Xem danh sách bạn bè và cuộc trò chuyện gần đây.</ThemedText>
+        </TouchableOpacity>
+
+        <View style={styles.noteCard}>
+          <ThemedText style={styles.notePlaceholder}>Ghi chú (chỉ hiển thị cho bạn)</ThemedText>
+          <Ionicons name="calendar-outline" size={24} color={DiscordColors.textSecondary} />
         </View>
       </ScrollView>
+
+      <Modal
+        visible={isSettingsVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsSettingsVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setIsSettingsVisible(false)} />
+          <View style={styles.modalSheet}>
+            <View style={styles.sheetHandle} />
+            <ThemedText style={styles.sheetTitle}>Cài đặt</ThemedText>
+
+            <TouchableOpacity
+              style={styles.settingRow}
+              onPress={() => {
+                setIsSettingsVisible(false);
+                setIsAccountVisible(true);
+              }}
+            >
+              <Ionicons name="person-circle-outline" size={20} color={DiscordColors.textPrimary} />
+              <ThemedText style={styles.settingText}>Tài khoản</ThemedText>
+              <Ionicons name="chevron-forward" size={18} color={DiscordColors.textMuted} />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.settingRow} onPress={() => Alert.alert('Thông báo', 'Sẽ cập nhật sớm.')}>
+              <Ionicons name="notifications-outline" size={20} color={DiscordColors.textPrimary} />
+              <ThemedText style={styles.settingText}>Thông báo</ThemedText>
+              <Ionicons name="chevron-forward" size={18} color={DiscordColors.textMuted} />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.settingRow} onPress={() => Alert.alert('Giao diện', 'Sẽ cập nhật sớm.')}>
+              <Ionicons name="color-palette-outline" size={20} color={DiscordColors.textPrimary} />
+              <ThemedText style={styles.settingText}>Giao diện</ThemedText>
+              <Ionicons name="chevron-forward" size={18} color={DiscordColors.textMuted} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.settingRow}
+              onPress={() => {
+                setIsSettingsVisible(false);
+                router.push('/nitro');
+              }}
+            >
+              <Ionicons
+                name={isNitro ? 'sparkles-outline' : 'diamond-outline'}
+                size={20}
+                color={DiscordColors.textPrimary}
+              />
+              <ThemedText style={styles.settingText}>{isNitro ? 'Nitro của bạn' : 'Mua Nitro'}</ThemedText>
+              <Ionicons name="chevron-forward" size={18} color={DiscordColors.textMuted} />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={[styles.settingRow, styles.logoutRow]} onPress={handleLogout}>
+              <Ionicons name="log-out-outline" size={20} color={DiscordColors.red} />
+              <ThemedText style={styles.logoutText}>Đăng xuất</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={isAccountVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsAccountVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setIsAccountVisible(false)} />
+          <View style={styles.modalSheet}>
+            <View style={styles.sheetHandle} />
+            <ThemedText style={styles.sheetTitle}>Tài khoản</ThemedText>
+
+            <View style={styles.accountInfoBox}>
+              <ThemedText style={styles.accountLabel}>Email hiện tại</ThemedText>
+              <ThemedText style={styles.accountValue}>{user.email || 'Chưa có email'}</ThemedText>
+            </View>
+
+            <TouchableOpacity
+              style={styles.settingRow}
+              onPress={() => Alert.alert('Chỉnh sửa email', 'Tính năng cập nhật email sẽ sớm được thêm.')}
+            >
+              <Ionicons name="mail-outline" size={20} color={DiscordColors.textPrimary} />
+              <ThemedText style={styles.settingText}>Xem/Sửa email</ThemedText>
+              <Ionicons name="chevron-forward" size={18} color={DiscordColors.textMuted} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.settingRow}
+              onPress={() => {
+                setIsAccountVisible(false);
+                router.push('/change-password');
+              }}
+            >
+              <Ionicons name="key-outline" size={20} color={DiscordColors.textPrimary} />
+              <ThemedText style={styles.settingText}>Đổi mật khẩu</ThemedText>
+              <Ionicons name="chevron-forward" size={18} color={DiscordColors.textMuted} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={isStatusVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsStatusVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setIsStatusVisible(false)} />
+          <View style={styles.statusSheet}>
+            <View style={styles.sheetHandle} />
+            <ThemedText style={styles.sheetTitle}>Thay đổi trạng thái trực tuyến</ThemedText>
+            <ThemedText style={styles.statusSectionLabel}>Trạng thái trực tuyến</ThemedText>
+
+            <View style={styles.statusList}>
+              {STATUS_OPTIONS.map((option) => {
+                const selected = option.value === currentStatus;
+                return (
+                  <TouchableOpacity
+                    key={option.value}
+                    style={styles.statusRow}
+                    onPress={() => {
+                      void handleStatusChange(option.value);
+                    }}
+                    disabled={isUpdatingStatus}
+                  >
+                    <Ionicons name={option.icon} size={20} color={option.color} />
+                    <ThemedText style={styles.statusLabel}>{option.label}</ThemedText>
+                    <View style={[styles.statusRadio, selected && styles.statusRadioActive]}>
+                      {selected ? <View style={styles.statusRadioInner} /> : null}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {isUpdatingStatus ? (
+              <View style={styles.statusUpdatingRow}>
+                <ActivityIndicator size="small" color={DiscordColors.blurple} />
+                <ThemedText style={styles.statusUpdatingText}>Đang lưu trạng thái...</ThemedText>
+              </View>
+            ) : null}
+
+            <TouchableOpacity
+              style={styles.customStatusBtn}
+              onPress={() => Alert.alert('Trạng thái tùy chỉnh', 'Tính năng này sẽ sớm được thêm.')}
+            >
+              <Ionicons name="happy-outline" size={22} color={DiscordColors.yellow} />
+              <ThemedText style={styles.customStatusText}>Đặt trạng thái tùy chỉnh</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -213,137 +424,353 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: DiscordColors.secondaryBackground,
+    backgroundColor: DiscordColors.primaryBackground,
   },
   center: {
     justifyContent: 'center',
     alignItems: 'center',
   },
+  emptyText: {
+    color: DiscordColors.textMuted,
+  },
   scrollContent: {
-    flexGrow: 1,
-    paddingBottom: 40,
+    paddingBottom: 22,
   },
   banner: {
-    height: 120,
+    height: 170,
     backgroundColor: DiscordColors.tertiaryBackground,
   },
   bannerOverlay: {
     ...StyleSheet.absoluteFillObject,
-    opacity: 0.6,
+    opacity: 0.88,
   },
-  profileHeader: {
-    paddingHorizontal: Spacing.lg,
-    marginTop: -50,
-  },
-  avatarShift: {
-    borderWidth: 6,
-    borderColor: DiscordColors.secondaryBackground,
-    borderRadius: 55,
-  },
-  nameSection: {
-    marginTop: Spacing.sm,
-  },
-  titleRow: {
+  bannerActions: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
   },
-  displayName: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: DiscordColors.textPrimary,
-  },
-  username: {
-    fontSize: 15,
-    color: DiscordColors.textSecondary,
-    marginTop: 2,
-  },
-  editCircleBtn: {
-    backgroundColor: DiscordColors.tertiaryBackground,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+  bannerIconBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(0,0,0,0.6)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  premiumBadge: {
-    backgroundColor: '#3A2D10',
-    alignSelf: 'flex-start',
-    marginTop: Spacing.sm,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
+  nitroBadge: {
+    backgroundColor: 'rgba(0,0,0,0.68)',
+    borderRadius: 21,
+    minHeight: 42,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
-  premiumText: {
+  nitroText: {
+    color: DiscordColors.textPrimary,
+    fontSize: 18 / 2,
+    fontWeight: '800',
+  },
+  profileHeader: {
+    marginTop: -34,
+    paddingHorizontal: Spacing.lg,
+    position: 'relative',
+    overflow: 'hidden',
+    paddingVertical: Spacing.md,
+  },
+  nameSection: {
+    marginTop: Spacing.md,
+  },
+  avatarWrap: {
+    alignSelf: 'flex-start',
+  },
+  hobbyBtn: {
+    marginTop: 6,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#444852',
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    gap: 6,
+  },
+  hobbyText: {
+    color: DiscordColors.textPrimary,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  displayName: {
+    marginTop: Spacing.md,
+    color: DiscordColors.textPrimary,
+    fontSize: 19,
+    fontWeight: '800',
+  },
+  username: {
+    marginTop: 2,
+    color: DiscordColors.textSecondary,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  usernameRow: {
+    marginTop: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  usernameNitroBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: 'rgba(254,231,92,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(254,231,92,0.4)',
+  },
+  usernameNitroText: {
     color: '#FEE75C',
     fontSize: 10,
     fontWeight: '800',
   },
-  card: {
-    backgroundColor: DiscordColors.tertiaryBackground,
-    marginHorizontal: Spacing.lg,
-    marginTop: Spacing.xl,
-    borderRadius: 12,
-    overflow: 'hidden',
+  editProfileBtn: {
+    marginTop: Spacing.md,
+    backgroundColor: DiscordColors.blurple,
+    borderRadius: 16,
+    height: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: Spacing.sm,
   },
-  section: {
-    padding: Spacing.lg,
-  },
-  sectionTitle: {
-    fontSize: 11,
+  editProfileText: {
+    color: '#fff',
+    fontSize: 16,
     fontWeight: '800',
-    color: DiscordColors.textSecondary,
-    marginBottom: Spacing.md,
-    letterSpacing: 0.5,
   },
-  bioText: {
-    color: DiscordColors.textPrimary,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: DiscordColors.divider,
+  card: {
+    marginTop: Spacing.md,
     marginHorizontal: Spacing.lg,
+    borderRadius: 14,
+    backgroundColor: '#2B2F37',
+    padding: Spacing.md,
+    gap: 6,
   },
-  infoItem: {
+  noteCard: {
+    marginTop: Spacing.md,
+    marginHorizontal: Spacing.lg,
+    borderRadius: 14,
+    backgroundColor: '#2B2F37',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 10,
+    minHeight: 64,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: Spacing.md,
+    justifyContent: 'space-between',
   },
-  infoContent: {
-    marginLeft: Spacing.md,
-  },
-  infoLabel: {
-    fontSize: 11,
+  notePlaceholder: {
     color: DiscordColors.textMuted,
-    textTransform: 'uppercase',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  cardTitle: {
+    color: DiscordColors.textPrimary,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  cardSubtitle: {
+    color: DiscordColors.textSecondary,
+    fontSize: 14,
+    lineHeight: 18,
+  },
+  rowBetween: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  inlineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  joinedText: {
+    color: DiscordColors.textSecondary,
+    fontSize: 14,
+  },
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: DiscordColors.tertiaryBackground,
+    borderRadius: 999,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+  },
+  statusPillText: {
+    color: DiscordColors.textSecondary,
+    fontSize: 12,
     fontWeight: '700',
   },
-  infoValue: {
-    fontSize: 14,
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.62)',
+  },
+  modalSheet: {
+    backgroundColor: '#1F212B',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: 20,
+    paddingTop: Spacing.sm,
+    gap: Spacing.sm,
+  },
+  statusSheet: {
+    backgroundColor: '#1F212B',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: 20,
+    paddingTop: Spacing.sm,
+    gap: Spacing.md,
+  },
+  sheetHandle: {
+    alignSelf: 'center',
+    width: 46,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: DiscordColors.textMuted,
+    opacity: 0.5,
+    marginBottom: Spacing.sm,
+  },
+  sheetTitle: {
     color: DiscordColors.textPrimary,
+    fontSize: 22,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: Spacing.sm,
+  },
+  settingRow: {
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: '#2B2F37',
+    paddingHorizontal: Spacing.md,
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: Spacing.md,
+  },
+  settingText: {
+    color: DiscordColors.textPrimary,
+    fontSize: 15,
+    fontWeight: '700',
+    flex: 1,
+  },
+  logoutRow: {
+    marginTop: Spacing.md,
+    borderWidth: 1,
+    borderColor: 'rgba(242,63,67,0.5)',
+    backgroundColor: 'rgba(242,63,67,0.12)',
+  },
+  logoutText: {
+    color: DiscordColors.red,
+    fontSize: 15,
+    fontWeight: '800',
+    flex: 1,
+  },
+  accountInfoBox: {
+    borderRadius: 12,
+    backgroundColor: '#2B2F37',
+    padding: Spacing.md,
+    marginBottom: Spacing.xs,
+  },
+  accountLabel: {
+    color: DiscordColors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  accountValue: {
+    color: DiscordColors.textPrimary,
+    fontSize: 15,
+    marginTop: 4,
+    fontWeight: '700',
+  },
+  statusSectionLabel: {
+    color: DiscordColors.textSecondary,
+    fontSize: 16,
+    fontWeight: '700',
     marginTop: 2,
   },
-  actionRow: {
+  statusList: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: '#2B2F37',
+  },
+  statusRow: {
+    minHeight: 62,
+    paddingHorizontal: Spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: Spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: DiscordColors.divider,
+    gap: Spacing.md,
   },
-  actionText: {
-    flex: 1,
-    marginLeft: Spacing.md,
-    fontSize: 15,
+  statusLabel: {
     color: DiscordColors.textPrimary,
+    fontSize: 17,
+    fontWeight: '800',
+    flex: 1,
   },
-  footer: {
-    padding: Spacing.xl,
-    marginTop: Spacing.lg,
+  statusRadio: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: DiscordColors.blurple,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  logoutBtn: {
-    borderRadius: 8,
+  statusRadioActive: {
+    borderColor: '#6375FF',
   },
-  emptyText: {
-    color: DiscordColors.textMuted,
+  statusRadioInner: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#6375FF',
+  },
+  customStatusBtn: {
+    minHeight: 58,
+    borderRadius: 14,
+    backgroundColor: '#2B2F37',
+    paddingHorizontal: Spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    marginTop: 4,
+  },
+  customStatusText: {
+    color: DiscordColors.textPrimary,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  statusUpdatingRow: {
+    marginTop: Spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  statusUpdatingText: {
+    color: DiscordColors.textSecondary,
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

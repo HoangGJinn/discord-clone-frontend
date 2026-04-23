@@ -1,13 +1,15 @@
 import { User } from "@/store/useAuthStore";
-import { Attachment, Reaction } from "./dm";
+import { Attachment, Reaction, ReplyMessage } from "./dm";
 export interface ChannelMessage {
   id: string;
   channelId: number | string;
   sender: User;
   content: string;
   attachments?: Attachment[];
+  replyToMessage?: ReplyMessage;
   reactions?: Reaction[];
   edited?: boolean;
+  deleted?: boolean;
   pinned?: boolean;
   createdAt: string;
   updatedAt?: string;
@@ -18,7 +20,7 @@ export interface ChannelMessage {
 export interface SendChannelMessagePayload {
   content: string;
   replyToId?: string;
-  attachments?: string[];
+  attachments?: Attachment[];
 }
 
 // ─── Edit Message Payload ────────────────────────────────────

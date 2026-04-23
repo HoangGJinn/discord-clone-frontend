@@ -7,6 +7,8 @@ import {
   EditMessagePayload,
   ReactionPayload,
 } from "@/types/channel";
+import { normalizeAttachmentList } from "@/utils/attachments";
+import { useAuthStore } from "@/store/useAuthStore";
 
 interface ChannelChatState {
   messages: ChannelMessage[];
@@ -39,14 +41,79 @@ interface ChannelChatActions {
 
 type ChannelChatStore = ChannelChatState & ChannelChatActions;
 
+const applyReactionAdd = (messages: ChannelMessage[], messageId: string, userId: string, emoji: string): ChannelMessage[] => {
+  return messages.map((message) => {
+    if (message.id !== messageId) {
+      return message;
+    }
+
+    const reactions = Array.isArray(message.reactions) ? [...message.reactions] : [];
+    const index = reactions.findIndex((item) => item.emoji === emoji);
+    if (index === -1) {
+      reactions.push({ emoji, count: 1, users: [userId] });
+      return { ...message, reactions };
+    }
+
+    const target = reactions[index];
+    const users = Array.isArray(target.users) ? target.users : [];
+    if (!users.includes(userId)) {
+      const nextUsers = [...users, userId];
+      reactions[index] = { ...target, users: nextUsers, count: nextUsers.length };
+    }
+
+    return { ...message, reactions };
+  });
+};
+
+const applyReactionRemove = (messages: ChannelMessage[], messageId: string, userId: string, emoji: string): ChannelMessage[] => {
+  return messages.map((message) => {
+    if (message.id !== messageId) {
+      return message;
+    }
+
+    const reactions = Array.isArray(message.reactions) ? [...message.reactions] : [];
+    const index = reactions.findIndex((item) => item.emoji === emoji);
+    if (index === -1) {
+      return message;
+    }
+
+    const target = reactions[index];
+    const users = Array.isArray(target.users) ? target.users : [];
+    const nextUsers = users.filter((id) => String(id) !== String(userId));
+    if (nextUsers.length === 0) {
+      reactions.splice(index, 1);
+    } else {
+      reactions[index] = { ...target, users: nextUsers, count: nextUsers.length };
+    }
+
+    return { ...message, reactions };
+  });
+};
+
+const toTimestamp = (value: unknown): number => {
+  const time = new Date(value as any).getTime();
+  return Number.isFinite(time) ? time : 0;
+};
+
+const sortMessagesForInvertedList = (messages: ChannelMessage[]): ChannelMessage[] => {
+  // Inverted FlatList works best with newest-first data.
+  return [...messages].sort((a, b) => toTimestamp(b.createdAt) - toTimestamp(a.createdAt));
+};
+
 // helper to adapt backend flat response to nested format
-const adaptMessage = (msg: any): ChannelMessage => ({
-  id: msg.id,
-  channelId: msg.channelId,
-  content: msg.content,
+const adaptMessage = (msg: any): ChannelMessage => {
+  const rawAttachments =
+    msg?.attachments ?? msg?.attachmentUrls ?? msg?.files ?? msg?.fileUrls ?? [];
+  const replyRaw = msg?.replyToMessage;
+
+  return ({
+  id: String(msg?.id ?? `${msg?.channelId ?? "unknown"}-${msg?.createdAt ?? Date.now()}-${msg?.senderId ?? "anon"}`),
+  channelId: msg?.channelId,
+  content: typeof msg?.content === "string" ? msg.content : "",
   createdAt: msg.createdAt,
   updatedAt: msg.updatedAt,
   edited: msg.edited,
+  deleted: msg.deleted,
   pinned: msg.pinned,
   sender: {
     id: String(msg.senderId),
@@ -56,10 +123,24 @@ const adaptMessage = (msg: any): ChannelMessage => ({
     email: "",
     status: "ONLINE",
     role: [],
+    avatarEffectId: msg.senderAvatarEffectId || null,
+    bannerEffectId: msg.senderBannerEffectId || null,
+    cardEffectId: msg.senderCardEffectId || null,
   },
-  attachments: msg.attachments || [],
+  attachments: normalizeAttachmentList(rawAttachments),
+  replyToId: msg?.replyToId ? String(msg.replyToId) : undefined,
+  replyToMessage: replyRaw
+    ? {
+        id: String(replyRaw.id),
+        content: typeof replyRaw.content === "string" ? replyRaw.content : "",
+        attachments: normalizeAttachmentList(replyRaw.attachments),
+        senderName: replyRaw.senderName,
+        deleted: Boolean(replyRaw.deleted),
+      }
+    : undefined,
   reactions: msg.reactions || [],
 });
+};
 
 export const useChannelChatStore = create<ChannelChatStore>((set, get) => ({
   messages: [],
@@ -85,12 +166,14 @@ export const useChannelChatStore = create<ChannelChatStore>((set, get) => ({
 
       const data = response.data;
       const rawArray = Array.isArray(data) ? data : data.content ?? [];
-      const newMessages: ChannelMessage[] = rawArray.map(adaptMessage);
+      const newMessages: ChannelMessage[] = sortMessagesForInvertedList(rawArray.map(adaptMessage));
       const isLastPage = Array.isArray(data) ? true : data.last ?? true;
 
       set({
         messages:
-          page === 0 ? newMessages : [...get().messages, ...newMessages],
+          page === 0
+            ? newMessages
+            : sortMessagesForInvertedList([...get().messages, ...newMessages]),
         currentPage: page,
         hasMoreMessages: !isLastPage,
         isLoadingMessages: false,
@@ -136,12 +219,17 @@ export const useChannelChatStore = create<ChannelChatStore>((set, get) => ({
   addRealtimeMessage: (rawMessage: any) => {
     const message = adaptMessage(rawMessage);
     set((state) => {
-      // Deduplicate
       const exists = state.messages.some((m) => m.id === message.id);
-      if (exists) return state;
+      if (exists) {
+        return {
+          messages: sortMessagesForInvertedList(
+            state.messages.map((m) => (m.id === message.id ? { ...m, ...message } : m)),
+          ),
+        };
+      }
 
       return {
-        messages: [message, ...state.messages],
+        messages: sortMessagesForInvertedList([message, ...state.messages]),
       };
     });
   },
@@ -205,8 +293,16 @@ export const useChannelChatStore = create<ChannelChatStore>((set, get) => ({
 
   addReaction: async (messageId: string, payload: ReactionPayload) => {
     try {
-      await apiClient.post(`/messages/${messageId}/reactions`, payload);
-      // Optimistic: will also arrive via WebSocket
+      await apiClient.post(`/messages/${messageId}/reactions`, null, {
+        params: { emoji: payload.emoji },
+      });
+
+      const currentUserId = useAuthStore.getState().user?.id;
+      if (currentUserId) {
+        set((state) => ({
+          messages: applyReactionAdd(state.messages, messageId, String(currentUserId), payload.emoji),
+        }));
+      }
     } catch (err: any) {
       set({ error: err.response?.data?.message || err.message });
     }
@@ -215,8 +311,15 @@ export const useChannelChatStore = create<ChannelChatStore>((set, get) => ({
   removeReaction: async (messageId: string, payload: ReactionPayload) => {
     try {
       await apiClient.delete(`/messages/${messageId}/reactions`, {
-        data: payload,
+        params: { emoji: payload.emoji },
       });
+
+      const currentUserId = useAuthStore.getState().user?.id;
+      if (currentUserId) {
+        set((state) => ({
+          messages: applyReactionRemove(state.messages, messageId, String(currentUserId), payload.emoji),
+        }));
+      }
     } catch (err: any) {
       set({ error: err.response?.data?.message || err.message });
     }

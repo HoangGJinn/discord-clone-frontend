@@ -1,8 +1,9 @@
 import { User } from "@/store/useAuthStore";
-import { DirectMessage, Conversation, Reaction } from "@/types/dm";
+import { Attachment, DirectMessage, Conversation, Reaction, ReplyMessage } from "@/types/dm";
+import { normalizeAttachmentList } from "@/utils/attachments";
 
 // Backend UserResponse structure
-interface BackendUserResponse {
+export interface BackendUserResponse {
   id: number;
   username: string;
   email?: string;
@@ -14,10 +15,13 @@ interface BackendUserResponse {
   pronouns?: string;
   status?: string;
   roles?: string[];
+  avatarEffectId?: string;
+  bannerEffectId?: string;
+  cardEffectId?: string;
 }
 
 // Backend DirectMessageResponse structure
-interface BackendDirectMessageResponse {
+export interface BackendDirectMessageResponse {
   id: string;
   conversationId: string;
   senderId: number;
@@ -25,7 +29,7 @@ interface BackendDirectMessageResponse {
   sender?: BackendUserResponse;
   receiver?: BackendUserResponse;
   content: string;
-  attachments?: any[];
+  attachments?: Attachment[];
   reactions?: Record<string, number[]>; // emoji -> userIds array
   edited?: boolean;
   deleted?: boolean;
@@ -37,7 +41,7 @@ interface BackendDirectMessageResponse {
 }
 
 // Backend ConversationResponse structure
-interface BackendConversationResponse {
+export interface BackendConversationResponse {
   id: string;
   participantOne?: BackendUserResponse;
   participantTwo?: BackendUserResponse;
@@ -47,6 +51,7 @@ interface BackendConversationResponse {
   otherUserId?: number;
   otherUserName?: string;
   otherUserAvatar?: string;
+  unreadCount?: number;
   createdAt: string | Date;
   updatedAt?: string | Date;
 }
@@ -67,6 +72,9 @@ export function transformUser(backendUser?: BackendUserResponse | null): User | 
     birthDate: backendUser.birthDate,
     country: backendUser.country,
     pronouns: backendUser.pronouns,
+    avatarEffectId: backendUser.avatarEffectId || undefined,
+    bannerEffectId: backendUser.bannerEffectId || undefined,
+    cardEffectId: backendUser.cardEffectId || undefined,
   };
 }
 
@@ -90,6 +98,21 @@ export function transformDirectMessage(
 ): DirectMessage {
   const sender = transformUser(msg.sender);
   const reactions = transformReactions(msg.reactions);
+  const replyToMessage: ReplyMessage | undefined = msg.replyToMessage
+    ? {
+        id: String(msg.replyToMessage.id),
+        content: msg.replyToMessage.content || "",
+        attachments: normalizeAttachmentList(msg.replyToMessage.attachments),
+        deleted: Boolean(msg.replyToMessage.deleted),
+        sender: msg.replyToMessage.sender
+          ? {
+              id: String(msg.replyToMessage.sender.id),
+              username: msg.replyToMessage.sender.username || "Unknown",
+              displayName: msg.replyToMessage.sender.displayName,
+            }
+          : undefined,
+      }
+    : undefined;
 
   return {
     id: msg.id,
@@ -101,9 +124,12 @@ export function transformDirectMessage(
       role: [],
     },
     content: msg.content,
-    attachments: msg.attachments,
+    attachments: normalizeAttachmentList(msg.attachments),
+    replyToId: msg.replyToId,
+    replyToMessage,
     reactions: reactions,
     edited: msg.edited,
+    deleted: msg.deleted,
     pinned: false,
     createdAt:
       typeof msg.createdAt === "string"
@@ -112,7 +138,7 @@ export function transformDirectMessage(
     updatedAt:
       msg.updatedAt && typeof msg.updatedAt === "string"
         ? msg.updatedAt
-        : msg.updatedAt?.toISOString(),
+        : msg.updatedAt ? (msg.updatedAt as Date).toISOString() : undefined,
   };
 }
 
@@ -138,14 +164,15 @@ export function transformConversation(
     lastMessage: conv.lastMessage
       ? transformDirectMessage(conv.lastMessage, currentUserId)
       : undefined,
+    unreadCount: typeof conv.unreadCount === 'number' ? conv.unreadCount : 0,
     createdAt:
       typeof conv.createdAt === "string"
         ? conv.createdAt
-        : conv.createdAt?.toISOString() || new Date().toISOString(),
+        : (conv.createdAt as Date)?.toISOString() || new Date().toISOString(),
     updatedAt:
       conv.updatedAt && typeof conv.updatedAt === "string"
         ? conv.updatedAt
-        : conv.updatedAt?.toISOString() || new Date().toISOString(),
+        : conv.updatedAt ? (conv.updatedAt as Date).toISOString() : new Date().toISOString(),
   };
 }
 

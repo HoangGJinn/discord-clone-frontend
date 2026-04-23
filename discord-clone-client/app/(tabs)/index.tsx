@@ -1,11 +1,13 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
+  RefreshControl,
   StyleSheet,
   TextInput,
   View,
@@ -13,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 
 import { ThemedText } from '@/components/themed-text';
 import { DiscordColors, Spacing } from '@/constants/theme';
@@ -29,6 +32,9 @@ import {
   ServerDetailsResponse,
   ServerResponse,
   getServerDetails,
+  markChannelAsRead,
+  markChannelAsUnread,
+  uploadFile,
   updateServer,
 } from '@/services/serverService';
 import { ServerChannelList } from '@/components/server/ServerChannelList';
@@ -38,6 +44,10 @@ import { InviteModal } from '@/components/server/InviteModal';
 import { JoinServerModal } from '@/components/server/JoinServerModal';
 import { useAuthStore } from '@/store/useAuthStore';
 import socketService from '@/services/socketService';
+import { useDMStore } from '@/store/useDMStore';
+import { ConversationItem } from '@/components/ConversationItem';
+import { Conversation, getOtherParticipant } from '@/types/dm';
+import { isImageAttachment } from '@/utils/attachments';
 
 interface VoiceSocketMessage {
   type?: 'JOIN' | 'LEAVE' | 'UPDATE_STATE' | 'INITIAL_SYNC';
@@ -49,6 +59,45 @@ interface VoiceSocketMessage {
   }[];
 }
 
+function buildLastMessagePreview(conversation: Conversation) {
+  const lastMessage = conversation.lastMessage;
+  if (!lastMessage) return undefined;
+
+  const content = (lastMessage.content || '').trim();
+  if (content) {
+    return content;
+  }
+
+  const attachments = lastMessage.attachments || [];
+  if (!attachments.length) {
+    return undefined;
+  }
+
+  const hasGiftAttachment = attachments.some((attachment) => {
+    const filename = (attachment.filename || '').toLowerCase();
+    const contentType = (attachment.contentType || '').toLowerCase();
+    const url = (attachment.url || '').toLowerCase();
+    return (
+      filename.includes('gift') ||
+      contentType.includes('gift') ||
+      url.includes('gift')
+    );
+  });
+
+  if (hasGiftAttachment) {
+    return 'Sent a gift';
+  }
+
+  const hasImage = attachments.some((attachment) => isImageAttachment(attachment));
+  if (hasImage && attachments.length === 1) {
+    return 'Photo';
+  }
+  if (hasImage) {
+    return `${attachments.length} attachments`;
+  }
+  return attachments.length === 1 ? 'File' : `${attachments.length} files`;
+}
+
 export default function HomeScreen() {
   const router = useRouter();
   const servers = useServerStore((state) => state.servers);
@@ -57,14 +106,25 @@ export default function HomeScreen() {
   const error = useServerStore((state) => state.error);
   const fetchServers = useServerStore((state) => state.fetchServers);
   const setActiveServerId = useServerStore((state) => state.setActiveServerId);
+  const channelUnreadByServer = useServerStore((state) => state.channelUnreadByServer);
+  const setChannelUnreadMap = useServerStore((state) => state.setChannelUnreadMap);
+  const incrementChannelUnread = useServerStore((state) => state.incrementChannelUnread);
+  const clearChannelUnread = useServerStore((state) => state.clearChannelUnread);
   const clearError = useServerStore((state) => state.clearError);
   const user = useAuthStore((state) => state.user);
+  const conversations = useDMStore((state) => state.conversations);
+  const isLoadingConversations = useDMStore((state) => state.isLoadingConversations);
+  const fetchConversations = useDMStore((state) => state.fetchConversations);
+  const markConversationAsRead = useDMStore((state) => state.markConversationAsRead);
+  const markConversationAsUnread = useDMStore((state) => state.markConversationAsUnread);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [activeServerDetails, setActiveServerDetails] = useState<ServerDetailsResponse | null>(null);
   const [activeChannelId, setActiveChannelId] = useState<number | null>(null);
   const [isLoadingServerDetails, setIsLoadingServerDetails] = useState(false);
   const [voiceChannelCounts, setVoiceChannelCounts] = useState<Record<number, number>>({});
+  const [isDmPanelActive, setIsDmPanelActive] = useState(true);
+  const [dmSearchQuery, setDmSearchQuery] = useState('');
 
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [editingCategory, setEditingCategory] = useState<CategoryResponse | null>(null);
@@ -83,12 +143,50 @@ export default function HomeScreen() {
 
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
+  const [isUpdatingServerIcon, setIsUpdatingServerIcon] = useState(false);
+  const activeServerIdRef = useRef<number | null>(null);
+  const activeChannelIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    activeServerIdRef.current = activeServerId;
+    activeChannelIdRef.current = activeChannelId;
+  }, [activeServerId, activeChannelId]);
 
   useFocusEffect(
     useCallback(() => {
       void fetchServers();
     }, [fetchServers]),
   );
+
+  useEffect(() => {
+    if (!isDmPanelActive) {
+      return;
+    }
+
+    void fetchConversations();
+  }, [fetchConversations, isDmPanelActive]);
+
+  // Realtime updates for each DM row while DM panel is active.
+  useEffect(() => {
+    if (!isDmPanelActive || conversations.length === 0) return;
+
+    const subscriptions: Array<{ destination: string; listener: (message: any) => void }> = [];
+
+    conversations.forEach((conversation) => {
+      const destination = `/topic/dm/${conversation.id}`;
+      const listener = (message: any) => {
+        useDMStore.getState().applyRealtimeQueueEvent(message);
+      };
+      subscriptions.push({ destination, listener });
+      void socketService.subscribe(destination, listener);
+    });
+
+    return () => {
+      subscriptions.forEach(({ destination, listener }) => {
+        socketService.unsubscribe(destination, listener);
+      });
+    };
+  }, [isDmPanelActive, conversations]);
 
   useEffect(() => {
     const loadServerDetails = async () => {
@@ -116,6 +214,16 @@ export default function HomeScreen() {
         const nextActiveChannel = firstCategoryChannel || firstUncategorizedTextChannel || null;
 
         setActiveChannelId(nextActiveChannel?.id ?? null);
+        const unreadByChannel: Record<number, number> = {};
+        (details.categories || []).forEach((category) => {
+          (category.channels || []).forEach((channel) => {
+            unreadByChannel[channel.id] = channel.unreadCount ?? 0;
+          });
+        });
+        (details.channels || []).forEach((channel) => {
+          unreadByChannel[channel.id] = channel.unreadCount ?? 0;
+        });
+        setChannelUnreadMap(activeServerId, unreadByChannel);
       } catch {
         setActiveServerDetails(null);
         setActiveChannelId(null);
@@ -126,7 +234,66 @@ export default function HomeScreen() {
     };
 
     void loadServerDetails();
-  }, [activeServerId]);
+  }, [activeServerId, setChannelUnreadMap]);
+
+  useEffect(() => {
+    if (!user?.id || servers.length === 0) {
+      return;
+    }
+
+    let disposed = false;
+    const subscriptions: Array<{ destination: string; listener: (message: any) => void }> = [];
+
+    const subscribeServerChannels = async () => {
+      const detailsResults = await Promise.allSettled(
+        servers.map((server) => getServerDetails(server.id)),
+      );
+
+      if (disposed) return;
+
+      detailsResults.forEach((result, index) => {
+        if (result.status !== 'fulfilled') return;
+        const serverId = servers[index]?.id;
+        if (!serverId) return;
+
+        const details = result.value;
+        const textChannels = [
+          ...(details.categories || []).flatMap((category) => category.channels || []),
+          ...(details.channels || []),
+        ].filter((channel) => channel.type === 'TEXT');
+
+        textChannels.forEach((channel) => {
+          const destination = `/topic/channel/${channel.id}`;
+          const listener = (message: any) => {
+            const senderId = Number(message?.senderId);
+            if (Number.isFinite(senderId) && senderId === Number(user.id)) {
+              return;
+            }
+
+            const isViewingThisChannel =
+              activeServerIdRef.current === serverId &&
+              activeChannelIdRef.current === channel.id;
+            if (isViewingThisChannel) {
+              return;
+            }
+
+            incrementChannelUnread(serverId, channel.id);
+          };
+          subscriptions.push({ destination, listener });
+          void socketService.subscribe(destination, listener);
+        });
+      });
+    };
+
+    void subscribeServerChannels();
+
+    return () => {
+      disposed = true;
+      subscriptions.forEach(({ destination, listener }) => {
+        socketService.unsubscribe(destination, listener);
+      });
+    };
+  }, [incrementChannelUnread, servers, user?.id]);
 
   useEffect(() => {
     if (!activeServerId) {
@@ -134,37 +301,38 @@ export default function HomeScreen() {
     }
 
     const destination = `/topic/server/${activeServerId}/voice`;
+    const onVoiceMessage = (message: VoiceSocketMessage) => {
+      if (message.type === 'INITIAL_SYNC' && Array.isArray(message.states)) {
+        const nextCounts: Record<number, number> = {};
+        for (const state of message.states) {
+          const channelId = state.channelId;
+          if (!channelId) continue;
+          nextCounts[channelId] = (nextCounts[channelId] || 0) + 1;
+        }
+        setVoiceChannelCounts(nextCounts);
+        return;
+      }
+
+      if (message.type === 'LEAVE' && message.state?.channelId) {
+        setVoiceChannelCounts((current) => {
+          const channelId = message.state?.channelId as number;
+          const currentCount = current[channelId] || 0;
+          return {
+            ...current,
+            [channelId]: Math.max(currentCount - 1, 0),
+          };
+        });
+      }
+    };
 
     const subscribeVoice = async () => {
-      await socketService.subscribe<VoiceSocketMessage>(destination, (message) => {
-        if (message.type === 'INITIAL_SYNC' && Array.isArray(message.states)) {
-          const nextCounts: Record<number, number> = {};
-          for (const state of message.states) {
-            const channelId = state.channelId;
-            if (!channelId) continue;
-            nextCounts[channelId] = (nextCounts[channelId] || 0) + 1;
-          }
-          setVoiceChannelCounts(nextCounts);
-          return;
-        }
-
-        if (message.type === 'LEAVE' && message.state?.channelId) {
-          setVoiceChannelCounts((current) => {
-            const channelId = message.state?.channelId as number;
-            const currentCount = current[channelId] || 0;
-            return {
-              ...current,
-              [channelId]: Math.max(currentCount - 1, 0),
-            };
-          });
-        }
-      });
+      await socketService.subscribe<VoiceSocketMessage>(destination, onVoiceMessage);
     };
 
     void subscribeVoice();
 
     return () => {
-      socketService.unsubscribe(destination);
+      socketService.unsubscribe(destination, onVoiceMessage);
     };
   }, [activeServerId]);
 
@@ -192,8 +360,35 @@ export default function HomeScreen() {
     [servers, activeServerId],
   );
 
+  const filteredConversations = useMemo(() => {
+    if (!user) {
+      return conversations;
+    }
+
+    const query = dmSearchQuery.trim().toLowerCase();
+    return conversations.filter((conversation) => {
+      if (!conversation) return false;
+
+      if (!query) {
+        return true;
+      }
+
+      const other = getOtherParticipant(conversation, user.id);
+      const name = (other.displayName || other.username || '').toLowerCase();
+      return name.includes(query);
+    });
+  }, [conversations, dmSearchQuery, user]);
+
+  const handleOpenConversation = useCallback(
+    (conversationId: string) => {
+      router.push(`/dm/${conversationId}` as any);
+    },
+    [router],
+  );
+
   const handleServerPress = useCallback(
     (server: ServerResponse) => {
+      setIsDmPanelActive(false);
       setActiveServerId(server.id);
     },
     [setActiveServerId],
@@ -201,6 +396,7 @@ export default function HomeScreen() {
 
   const handleServerLongPress = useCallback(
     (server: ServerResponse) => {
+      setIsDmPanelActive(false);
       setActiveServerId(server.id);
       setSelectedServerForOptions(server);
       setShowServerOptionsModal(true);
@@ -220,22 +416,28 @@ export default function HomeScreen() {
     if (!selectedServerForOptions) return;
 
     Alert.alert(
-      'Delete server',
-      `Delete "${selectedServerForOptions.name}"? This action cannot be undone.`,
+      'Delete Server',
+      `Are you sure you want to delete "${selectedServerForOptions.name}"? This action is permanent and cannot be undone.\n\nTip: You can transfer ownership to someone else and leave the server instead if you just want to quit.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete',
+          text: 'Transfer & Leave',
+          onPress: () => {
+            setShowServerOptionsModal(false);
+            router.push(`/server/${selectedServerForOptions.id}/members` as any);
+          },
+        },
+        {
+          text: 'Delete Server',
           style: 'destructive',
           onPress: async () => {
             setIsServerActionLoading(true);
             try {
-              await deleteServer(selectedServerForOptions.id);
+              await useServerStore.getState().deleteCurrentServer(selectedServerForOptions.id);
               setShowServerOptionsModal(false);
               setSelectedServerForOptions(null);
-              await fetchServers();
-            } catch {
-              Alert.alert('Error', 'Could not delete server.');
+            } catch (err: any) {
+              Alert.alert('Error', err?.message || 'Could not delete server.');
             } finally {
               setIsServerActionLoading(false);
             }
@@ -243,7 +445,83 @@ export default function HomeScreen() {
         },
       ],
     );
-  }, [fetchServers, selectedServerForOptions]);
+  }, [router, selectedServerForOptions]);
+
+  const handlePickServerAvatar = useCallback(async () => {
+    if (!selectedServerForOptions || isUpdatingServerIcon) {
+      return;
+    }
+
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission required', 'Please allow photo library access to change server avatar.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.82,
+      });
+
+      if (result.canceled || !result.assets?.[0]) {
+        return;
+      }
+
+      setIsUpdatingServerIcon(true);
+      const asset = result.assets[0];
+      const uploadedUrl = await uploadFile({
+        uri: asset.uri,
+        mimeType: asset.mimeType || 'image/jpeg',
+        fileName: asset.fileName || `server-icon-${selectedServerForOptions.id}.jpg`,
+      });
+
+      await updateServer(selectedServerForOptions.id, {
+        iconUrl: uploadedUrl,
+      });
+      await fetchServers();
+
+      if (activeServerId === selectedServerForOptions.id) {
+        const details = await getServerDetails(selectedServerForOptions.id);
+        setActiveServerDetails(details);
+      }
+
+      setShowServerOptionsModal(false);
+      setSelectedServerForOptions(null);
+    } catch (error: any) {
+      Alert.alert('Error', error?.message || 'Could not update server avatar.');
+    } finally {
+      setIsUpdatingServerIcon(false);
+    }
+  }, [activeServerId, fetchServers, isUpdatingServerIcon, selectedServerForOptions]);
+
+  const handleClearServerAvatar = useCallback(() => {
+    if (!selectedServerForOptions || isUpdatingServerIcon) {
+      return;
+    }
+
+    void (async () => {
+      try {
+        setIsUpdatingServerIcon(true);
+        await updateServer(selectedServerForOptions.id, { iconUrl: '' });
+        await fetchServers();
+
+        if (activeServerId === selectedServerForOptions.id) {
+          const details = await getServerDetails(selectedServerForOptions.id);
+          setActiveServerDetails(details);
+        }
+      } catch {
+        Alert.alert('Error', 'Could not clear server avatar.');
+      } finally {
+        setIsUpdatingServerIcon(false);
+      }
+    })();
+
+    setShowServerOptionsModal(false);
+    setSelectedServerForOptions(null);
+  }, [activeServerId, fetchServers, isUpdatingServerIcon, selectedServerForOptions]);
 
   const handleLeaveServerFromOptions = useCallback(async () => {
     if (!selectedServerForOptions) return;
@@ -259,12 +537,11 @@ export default function HomeScreen() {
           onPress: async () => {
             setIsServerActionLoading(true);
             try {
-              await leaveServer(selectedServerForOptions.id);
+              await useServerStore.getState().leaveCurrentServer(selectedServerForOptions.id);
               setShowServerOptionsModal(false);
               setSelectedServerForOptions(null);
-              await fetchServers();
-            } catch {
-              Alert.alert('Error', 'Could not leave server.');
+            } catch (err: any) {
+              Alert.alert('Cannot Leave', err?.message || 'Could not leave server.');
             } finally {
               setIsServerActionLoading(false);
             }
@@ -272,7 +549,45 @@ export default function HomeScreen() {
         },
       ],
     );
-  }, [fetchServers, selectedServerForOptions]);
+  }, [selectedServerForOptions]);
+
+  const handleMarkServerAsReadFromOptions = useCallback(async () => {
+    if (!selectedServerForOptions) return;
+
+    setIsServerActionLoading(true);
+    try {
+      const details = await getServerDetails(selectedServerForOptions.id);
+      const textChannels = [
+        ...(details.categories || []).flatMap((category) => category.channels || []),
+        ...(details.channels || []),
+      ].filter((channel) => channel.type === 'TEXT');
+
+      if (textChannels.length > 0) {
+        await Promise.allSettled(
+          textChannels.map((channel) => markChannelAsRead(channel.id)),
+        );
+      }
+
+      const zeroUnreadMap: Record<number, number> = {};
+      textChannels.forEach((channel) => {
+        zeroUnreadMap[channel.id] = 0;
+      });
+      setChannelUnreadMap(selectedServerForOptions.id, zeroUnreadMap);
+      await fetchServers();
+
+      if (activeServerId === selectedServerForOptions.id) {
+        const refreshed = await getServerDetails(selectedServerForOptions.id);
+        setActiveServerDetails(refreshed);
+      }
+
+      setShowServerOptionsModal(false);
+      setSelectedServerForOptions(null);
+    } catch {
+      Alert.alert('Error', 'Could not mark server as read.');
+    } finally {
+      setIsServerActionLoading(false);
+    }
+  }, [activeServerId, fetchServers, selectedServerForOptions, setChannelUnreadMap]);
 
   const submitRenameServer = useCallback(async () => {
     if (!serverToRename) return;
@@ -306,9 +621,18 @@ export default function HomeScreen() {
       if (channel.type === 'VOICE') {
         router.push({
           pathname: '/voice/[channelId]',
-          params: { channelId: String(channel.id) },
+          params: {
+            channelId: String(channel.id),
+            channelName: channel.name,
+            serverId: String(activeServerId ?? channel.serverId),
+          },
         });
         return;
+      }
+
+      const serverId = activeServerId ?? channel.serverId;
+      if (serverId) {
+        clearChannelUnread(serverId, channel.id);
       }
 
       router.push({
@@ -316,7 +640,7 @@ export default function HomeScreen() {
         params: { channelId: String(channel.id) },
       });
     },
-    [router],
+    [router, activeServerId, clearChannelUnread],
   );
 
   const refreshServerDetails = useCallback(async () => {
@@ -410,6 +734,65 @@ export default function HomeScreen() {
     [isManager, refreshServerDetails],
   );
 
+  const handleChannelLongPress = useCallback(
+    (channel: ChannelResponse) => {
+      if (channel.type !== 'TEXT') return;
+      const serverId = activeServerId ?? channel.serverId;
+      if (!serverId) return;
+      const currentUnread =
+        (channelUnreadByServer[serverId] || {})[channel.id] ??
+        channel.unreadCount ??
+        0;
+      const hasUnread = currentUnread > 0;
+      const readToggleAction = hasUnread
+        ? {
+            text: 'Mark as read',
+            onPress: () => {
+              clearChannelUnread(serverId, channel.id);
+              void markChannelAsRead(channel.id);
+            },
+          }
+        : {
+            text: 'Mark as unread',
+            onPress: () => {
+              incrementChannelUnread(serverId, channel.id);
+              void markChannelAsUnread(channel.id);
+            },
+          };
+
+      if (isManager) {
+        Alert.alert(
+          `#${channel.name}`,
+          'Channel options',
+          [
+            readToggleAction,
+            { text: 'Edit', onPress: () => openEditChannel(channel) },
+            { text: 'Delete', style: 'destructive', onPress: () => handleDeleteChannel(channel) },
+            { text: 'Cancel', style: 'cancel' },
+          ],
+          { cancelable: true },
+        );
+        return;
+      }
+
+      Alert.alert(
+        `#${channel.name}`,
+        'Update read status for this channel.',
+        [readToggleAction, { text: 'Cancel', style: 'cancel' }],
+        { cancelable: true },
+      );
+    },
+    [
+      activeServerId,
+      channelUnreadByServer,
+      clearChannelUnread,
+      handleDeleteChannel,
+      incrementChannelUnread,
+      isManager,
+      openEditChannel,
+    ],
+  );
+
   const handleInviteCodeChanged = useCallback((newCode: string) => {
     setActiveServerDetails((prev) => {
       if (!prev) return prev;
@@ -418,96 +801,207 @@ export default function HomeScreen() {
   }, []);
 
   const serverTitle = activeServerDetails?.name || activeServer?.name || 'Discord';
+  const dmTitle = 'Friends';
   const selectedServerUserId = Number(user?.id);
   const selectedServerIsOwner = Boolean(selectedServerForOptions) &&
     Boolean(user?.id) &&
     Number.isFinite(selectedServerUserId) &&
     selectedServerForOptions?.ownerId === selectedServerUserId;
 
+  const renderDmConversationItem = useCallback(
+    ({ item, index }: { item: Conversation; index: number }) => {
+      if (!user) return null;
+
+      const other = getOtherParticipant(item, user.id);
+
+      return (
+        <ConversationItem
+          participant={other}
+          lastMessageContent={buildLastMessagePreview(item)}
+          lastMessageSender={
+            item.lastMessage
+              ? String(item.lastMessage.sender?.id) === String(user.id)
+                ? 'You'
+                : item.lastMessage.sender?.username || 'User'
+              : undefined
+          }
+          lastMessageTime={item.lastMessage?.createdAt || item.updatedAt}
+          unreadCount={item.unreadCount}
+          onPress={() => handleOpenConversation(item.id)}
+          onLongPress={() => {
+            const hasUnread = (item.unreadCount ?? 0) > 0;
+            Alert.alert('Conversation options', 'Update read status for this conversation.', [
+              hasUnread
+                ? { text: 'Mark as read', onPress: () => { void markConversationAsRead(item.id); } }
+                : { text: 'Mark as unread', onPress: () => { void markConversationAsUnread(item.id); } },
+              { text: 'Cancel', style: 'cancel' },
+            ]);
+          }}
+          index={index}
+        />
+      );
+    },
+    [handleOpenConversation, markConversationAsRead, markConversationAsUnread, user],
+  );
+
+  const dmConversationKey = useCallback(
+    (item: Conversation, index: number) => item.id || `dm-${index}`,
+    [],
+  );
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <View style={styles.container}>
         <ServerSidebar
           servers={servers}
-          activeServerId={activeServerId}
+          activeServerId={isDmPanelActive ? null : activeServerId}
+          isDirectMessagesActive={isDmPanelActive}
           isLoading={isLoadingServers}
           onServerPress={handleServerPress}
           onServerLongPress={handleServerLongPress}
           onCreateServerPress={() => setShowCreateModal(true)}
+          onDirectMessagesPress={() => setIsDmPanelActive(true)}
         />
 
         <View style={styles.content}>
-          <View style={styles.header}>
-            <View style={{ flex: 1, marginRight: Spacing.sm }}>
-              <ThemedText style={styles.title} numberOfLines={1}>
-                {serverTitle}
-              </ThemedText>
-            </View>
-            {activeServerDetails ? (
-              <Pressable
-                style={styles.inviteHeaderButton}
-                onPress={() => setShowInviteModal(true)}
-              >
-                <Ionicons name="person-add" size={18} color="#fff" />
-              </Pressable>
-            ) : null}
-          </View>
+          {isDmPanelActive ? (
+            <>
+              <View style={styles.header}>
+                <View style={{ flex: 1, marginRight: Spacing.sm }}>
+                  <ThemedText style={styles.title} numberOfLines={1}>
+                    {dmTitle}
+                  </ThemedText>
+                </View>
+              </View>
 
-          {error ? (
-            <Pressable
-              style={styles.errorCard}
-              onPress={() => {
-                clearError();
-                void fetchServers();
-              }}
-            >
-              <Ionicons name="alert-circle" size={16} color={DiscordColors.red} />
-              <ThemedText style={styles.errorText}>{error}</ThemedText>
-              <ThemedText style={styles.errorRetry}>Tap to retry</ThemedText>
-            </Pressable>
-          ) : null}
+              <View style={styles.searchRow}>
+                <View style={styles.searchPill}>
+                  <Ionicons name="search" size={18} color={DiscordColors.textMuted} />
+                  <TextInput
+                    style={styles.dmSearchInput}
+                    placeholder="Find or start a conversation"
+                    placeholderTextColor={DiscordColors.textMuted}
+                    value={dmSearchQuery}
+                    onChangeText={setDmSearchQuery}
+                    autoCorrect={false}
+                    autoCapitalize="none"
+                  />
+                </View>
 
-          <View style={styles.searchRow}>
-            <View style={styles.searchPill}>
-              <Ionicons name="search" size={18} color={DiscordColors.textMuted} />
-              <ThemedText style={styles.searchText}>Search</ThemedText>
-            </View>
+                <Pressable
+                  style={styles.dmAddFriendButton}
+                  onPress={() => router.push('/friends/add')}
+                >
+                  <Ionicons name="person-add" size={20} color="#fff" />
+                </Pressable>
+              </View>
 
-            <Pressable
-              style={styles.iconButton}
-              onPress={() => setShowJoinModal(true)}
-            >
-              <Ionicons name="enter-outline" size={18} color={DiscordColors.textSecondary} />
-            </Pressable>
+              <View style={styles.dmListContainer}>
+                <FlatList
+                  data={filteredConversations}
+                  renderItem={renderDmConversationItem}
+                  keyExtractor={dmConversationKey}
+                  refreshControl={(
+                    <RefreshControl
+                      refreshing={isLoadingConversations}
+                      onRefresh={fetchConversations}
+                      tintColor={DiscordColors.blurple}
+                    />
+                  )}
+                  ListEmptyComponent={(
+                    <View style={styles.dmEmptyContainer}>
+                      <Ionicons
+                        name="chatbubbles-outline"
+                        size={54}
+                        color={DiscordColors.textMuted}
+                      />
+                      <ThemedText style={styles.dmEmptyTitle}>No messages yet</ThemedText>
+                      <ThemedText style={styles.dmEmptySubtitle}>
+                        Start a conversation from your friends list.
+                      </ThemedText>
+                    </View>
+                  )}
+                  contentContainerStyle={filteredConversations.length === 0 ? styles.dmEmptyList : undefined}
+                />
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={styles.header}>
+                <View style={{ flex: 1, marginRight: Spacing.sm }}>
+                  <ThemedText style={styles.title} numberOfLines={1}>
+                    {serverTitle}
+                  </ThemedText>
+                </View>
+                {activeServerDetails ? (
+                  <Pressable
+                    style={styles.inviteHeaderButton}
+                    onPress={() => setShowInviteModal(true)}
+                  >
+                    <Ionicons name="person-add" size={18} color="#fff" />
+                  </Pressable>
+                ) : null}
+              </View>
 
-            <Pressable
-              style={styles.iconButton}
-              onPress={() => {
-                if (!activeServerId) return;
-                router.push({
-                  pathname: '/server/[serverId]/members',
-                  params: { serverId: String(activeServerId) },
-                });
-              }}
-            >
-              <Ionicons name="people" size={18} color={DiscordColors.textSecondary} />
-            </Pressable>
-          </View>
+              {error ? (
+                <Pressable
+                  style={styles.errorCard}
+                  onPress={() => {
+                    clearError();
+                    void fetchServers();
+                  }}
+                >
+                  <Ionicons name="alert-circle" size={16} color={DiscordColors.red} />
+                  <ThemedText style={styles.errorText}>{error}</ThemedText>
+                  <ThemedText style={styles.errorRetry}>Tap to retry</ThemedText>
+                </Pressable>
+              ) : null}
 
-          <ServerChannelList
-            serverDetails={activeServerDetails}
-            activeChannelId={activeChannelId}
-            isLoading={isLoadingServerDetails}
-            isManager={isManager}
-            voiceChannelCounts={voiceChannelCounts}
-            onChannelPress={handleChannelPress}
-            onAddCategory={openCreateCategory}
-            onAddChannel={openCreateChannel}
-            onEditCategory={openEditCategory}
-            onDeleteCategory={handleDeleteCategory}
-            onEditChannel={openEditChannel}
-            onDeleteChannel={handleDeleteChannel}
-          />
+              <View style={styles.searchRow}>
+                <View style={styles.searchPill}>
+                  <Ionicons name="search" size={18} color={DiscordColors.textMuted} />
+                  <ThemedText style={styles.searchText}>Search</ThemedText>
+                </View>
+
+                <Pressable
+                  style={styles.iconButton}
+                  onPress={() => setShowJoinModal(true)}
+                >
+                  <Ionicons name="enter-outline" size={18} color={DiscordColors.textSecondary} />
+                </Pressable>
+
+                <Pressable
+                  style={styles.iconButton}
+                  onPress={() => {
+                    if (!activeServerId) return;
+                    router.push({
+                      pathname: '/server/[serverId]/members',
+                      params: { serverId: String(activeServerId) },
+                    });
+                  }}
+                >
+                  <Ionicons name="people" size={18} color={DiscordColors.textSecondary} />
+                </Pressable>
+              </View>
+
+              <ServerChannelList
+                serverDetails={activeServerDetails}
+                activeChannelId={activeChannelId}
+                unreadByChannelId={activeServerId ? (channelUnreadByServer[activeServerId] || {}) : {}}
+                isLoading={isLoadingServerDetails}
+                isManager={isManager}
+                voiceChannelCounts={voiceChannelCounts}
+                onChannelPress={handleChannelPress}
+                onChannelLongPress={handleChannelLongPress}
+                onAddCategory={openCreateCategory}
+                onAddChannel={openCreateChannel}
+                onEditCategory={openEditCategory}
+                onDeleteCategory={handleDeleteCategory}
+                onEditChannel={openEditChannel}
+                onDeleteChannel={handleDeleteChannel}
+              />
+            </>
+          )}
         </View>
       </View>
 
@@ -567,11 +1061,53 @@ export default function HomeScreen() {
                 <ThemedText style={styles.serverOptionText}>View Members</ThemedText>
               </Pressable>
 
+              <Pressable
+                style={styles.serverOptionButton}
+                onPress={() => {
+                  void handleMarkServerAsReadFromOptions();
+                }}
+                disabled={isServerActionLoading}
+              >
+                <Ionicons name="checkmark-done-outline" size={18} color={DiscordColors.textSecondary} />
+                <ThemedText style={styles.serverOptionText}>Mark All as Read</ThemedText>
+              </Pressable>
+
               {selectedServerIsOwner ? (
                 <>
+                  <Pressable
+                    style={styles.serverOptionButton}
+                    onPress={() => {
+                      void handlePickServerAvatar();
+                    }}
+                    disabled={isUpdatingServerIcon || isServerActionLoading}
+                  >
+                    <Ionicons name="image-outline" size={18} color={DiscordColors.textSecondary} />
+                    <ThemedText style={styles.serverOptionText}>Change Server Avatar</ThemedText>
+                  </Pressable>
+
+                  <Pressable
+                    style={styles.serverOptionButton}
+                    onPress={handleClearServerAvatar}
+                    disabled={isUpdatingServerIcon || isServerActionLoading}
+                  >
+                    <Ionicons name="close-circle-outline" size={18} color={DiscordColors.textSecondary} />
+                    <ThemedText style={styles.serverOptionText}>Clear Server Avatar</ThemedText>
+                  </Pressable>
+
                   <Pressable style={styles.serverOptionButton} onPress={handleOpenRenameServer}>
                     <Ionicons name="pencil-outline" size={18} color={DiscordColors.textSecondary} />
                     <ThemedText style={styles.serverOptionText}>Rename Server</ThemedText>
+                  </Pressable>
+
+                  <Pressable
+                    style={[styles.serverOptionButton, styles.serverOptionDanger]}
+                    onPress={() => {
+                      void handleLeaveServerFromOptions();
+                    }}
+                    disabled={isServerActionLoading}
+                  >
+                    <Ionicons name="exit-outline" size={18} color={DiscordColors.red} />
+                    <ThemedText style={styles.serverOptionDangerText}>Leave Server</ThemedText>
                   </Pressable>
 
                   <Pressable
@@ -598,6 +1134,10 @@ export default function HomeScreen() {
             </View>
 
             {isServerActionLoading ? (
+              <View style={styles.serverOptionsLoadingRow}>
+                <ActivityIndicator size="small" color={DiscordColors.textSecondary} />
+              </View>
+            ) : isUpdatingServerIcon ? (
               <View style={styles.serverOptionsLoadingRow}>
                 <ActivityIndicator size="small" color={DiscordColors.textSecondary} />
               </View>
@@ -766,6 +1306,45 @@ const styles = StyleSheet.create({
     color: DiscordColors.textMuted,
     fontSize: 14,
     fontWeight: '600',
+  },
+  dmSearchInput: {
+    flex: 1,
+    color: DiscordColors.textPrimary,
+    fontSize: 14,
+    paddingVertical: 0,
+  },
+  dmAddFriendButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: DiscordColors.green,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dmListContainer: {
+    flex: 1,
+    backgroundColor: DiscordColors.secondaryBackground,
+  },
+  dmEmptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 88,
+    paddingHorizontal: Spacing.lg,
+  },
+  dmEmptyTitle: {
+    marginTop: Spacing.md,
+    color: DiscordColors.textSecondary,
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  dmEmptySubtitle: {
+    marginTop: Spacing.xs,
+    color: DiscordColors.textMuted,
+    fontSize: 13,
+    textAlign: 'center',
+  },
+  dmEmptyList: {
+    flexGrow: 1,
   },
   iconButton: {
     width: 44,

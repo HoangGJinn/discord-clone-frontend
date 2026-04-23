@@ -11,6 +11,10 @@ class DashboardStats {
   final int newUsersToday;
   final int totalReports;
   final int pendingReports;
+  final double userGrowth;
+  final double serverGrowth;
+  final double messageGrowth;
+  final double revenueGrowth;
 
   const DashboardStats({
     required this.totalUsers,
@@ -22,6 +26,10 @@ class DashboardStats {
     required this.newUsersToday,
     required this.totalReports,
     required this.pendingReports,
+    required this.userGrowth,
+    required this.serverGrowth,
+    required this.messageGrowth,
+    required this.revenueGrowth,
   });
 
   factory DashboardStats.fromJson(Map<String, dynamic> json) {
@@ -35,6 +43,10 @@ class DashboardStats {
       newUsersToday: json['newUsersToday'] as int? ?? 0,
       totalReports: json['totalReports'] as int? ?? 0,
       pendingReports: json['pendingReports'] as int? ?? 0,
+      userGrowth: (json['userGrowth'] as num?)?.toDouble() ?? 0.0,
+      serverGrowth: (json['serverGrowth'] as num?)?.toDouble() ?? 0.0,
+      messageGrowth: (json['messageGrowth'] as num?)?.toDouble() ?? 0.0,
+      revenueGrowth: (json['revenueGrowth'] as num?)?.toDouble() ?? 0.0,
     );
   }
 }

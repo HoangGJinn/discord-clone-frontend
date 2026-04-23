@@ -1,16 +1,25 @@
 import { create } from 'zustand';
 import { dmCallService, DMCallState } from '@/services/dmCallService';
+import { AGORA_APP_ID } from '@/services/config';
+
+function toDmAgoraChannelName(conversationId: string): string {
+  const normalized = String(conversationId || '')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .slice(0, 54);
+  return `dm${normalized || 'room'}`;
+}
 
 interface DMCallStore {
   // State
   activeCall: DMCallState | null;
   isConnecting: boolean;
-  isRinging: boolean; // Có cuộc gọi đến đang đổ chuông
+  isRinging: boolean;
   agoraToken: string | null;
   agoraAppId: string | null;
-  
+  agoraChannelName: string | null;
+
   // Actions
-  startCall: (conversationId: string, callerId: string) => Promise<boolean>;
+  startCall: (conversationId: string, callerId: string, callType?: 'VOICE' | 'VIDEO') => Promise<boolean>;
   acceptCall: (conversationId: string, userId: string) => Promise<boolean>;
   declineCall: (conversationId: string, userId: string) => Promise<boolean>;
   endCall: (conversationId: string, userId: string) => Promise<boolean>;
@@ -19,7 +28,7 @@ interface DMCallStore {
   setRinging: (isRinging: boolean) => void;
   updateMuteState: (isMuted: boolean, isDeafened: boolean) => void;
   clearCall: () => void;
-  fetchAgoraToken: (conversationId: string, userId: string) => Promise<string | null>;
+  fetchAgoraToken: (conversationId: string, userId: string) => Promise<{ token: string; appId: string; channelName: string } | null>;
 }
 
 export const useDMCallStore = create<DMCallStore>((set, get) => ({
@@ -29,15 +38,16 @@ export const useDMCallStore = create<DMCallStore>((set, get) => ({
   isRinging: false,
   agoraToken: null,
   agoraAppId: null,
+  agoraChannelName: null,
 
   /**
-   * Bắt đầu cuộc gọi
+   * Bắt đầu cuộc gọi (voice hoặc video)
    */
-  startCall: async (conversationId: string, callerId: string) => {
+  startCall: async (conversationId: string, callerId: string, callType: 'VOICE' | 'VIDEO' = 'VOICE') => {
     try {
       set({ isConnecting: true });
       
-      const callState = await dmCallService.startCall(conversationId, callerId);
+      const callState = await dmCallService.startCall(conversationId, callerId, callType);
       if (callState) {
         set({ 
           activeCall: callState, 
@@ -62,23 +72,27 @@ export const useDMCallStore = create<DMCallStore>((set, get) => ({
   acceptCall: async (conversationId: string, userId: string) => {
     try {
       set({ isConnecting: true });
-      
+
       const callState = await dmCallService.acceptCall(conversationId, userId);
       if (callState) {
         // Lấy Agora token sau khi accept
         const tokenData = await dmCallService.getToken(conversationId, userId);
-        
-        set({ 
+        const normalizedToken = tokenData?.token?.trim() || null;
+
+        set({
           activeCall: callState,
-          agoraToken: tokenData?.token || null,
-          agoraAppId: tokenData?.appId || null,
+          agoraToken: normalizedToken,
+          // Keep DM call on the same Agora project as server voice channel.
+          // Backend appId can be different in local env and causes token/auth mismatch (error 110).
+          agoraAppId: AGORA_APP_ID,
+          agoraChannelName: toDmAgoraChannelName(conversationId),
           isConnecting: false,
           isRinging: false
         });
-        
+
         return true;
       }
-      
+
       set({ isConnecting: false });
       return false;
     } catch (error) {
@@ -169,7 +183,7 @@ export const useDMCallStore = create<DMCallStore>((set, get) => ({
     try {
       const callState = await dmCallService.updateState(
         activeCall.conversationId,
-        activeCall.callerId, // User hiện tại
+        activeCall.callerId,
         isMuted,
         isDeafened
       );
@@ -191,7 +205,8 @@ export const useDMCallStore = create<DMCallStore>((set, get) => ({
       isConnecting: false,
       isRinging: false,
       agoraToken: null,
-      agoraAppId: null
+      agoraAppId: null,
+      agoraChannelName: null,
     });
   },
 
@@ -202,11 +217,17 @@ export const useDMCallStore = create<DMCallStore>((set, get) => ({
     try {
       const tokenData = await dmCallService.getToken(conversationId, userId);
       if (tokenData) {
+        const normalizedToken = tokenData.token?.trim() || null;
         set({
-          agoraToken: tokenData.token,
-          agoraAppId: tokenData.appId
+          agoraToken: normalizedToken,
+          agoraAppId: AGORA_APP_ID,
+          agoraChannelName: toDmAgoraChannelName(conversationId),
         });
-        return tokenData.token;
+        return {
+          token: normalizedToken ?? '',
+          appId: AGORA_APP_ID,
+          channelName: toDmAgoraChannelName(conversationId),
+        };
       }
       return null;
     } catch (error) {

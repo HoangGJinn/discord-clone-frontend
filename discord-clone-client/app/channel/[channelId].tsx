@@ -7,6 +7,8 @@ import {
   Pressable,
   Alert,
   Clipboard,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons, Feather } from '@expo/vector-icons';
@@ -20,11 +22,13 @@ import { MessageActionSheet } from '@/components/MessageActionSheet';
 import { EmojiPicker } from '@/components/EmojiPicker';
 import { useChannelChatStore } from '@/store/useChannelChatStore';
 import { useAuthStore } from '@/store/useAuthStore';
+import { useServerStore } from '@/store/useServerStore';
 import { ChannelMessage } from '@/types/channel';
 import { DiscordColors, Spacing } from '@/constants/theme';
 import { isDifferentDay, formatDaySeparator } from '@/utils/formatTime';
 import socketService from '@/services/socketService';
-import { ChannelResponse, getChannelById } from '@/services/serverService';
+import { ChannelResponse, getChannelById, markChannelAsRead, getServerMembers, ServerMemberResponse } from '@/services/serverService';
+import { MessageSearchPanel } from '@/components/MessageSearchPanel';
 
 // ─── Custom Hook: Encapsulates WebSocket subscription logic ──
 function useChannelWebSocket(channelId: string) {
@@ -53,10 +57,12 @@ function useChannelWebSocket(channelId: string) {
 export default function ChannelChatScreen() {
   const { channelId } = useLocalSearchParams<{ channelId: string }>();
   const router = useRouter();
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef = useRef<FlatList<ChannelMessage>>(null);
+  const pendingScrollIndexRef = useRef<number | null>(null);
   const [channelInfo, setChannelInfo] = useState<ChannelResponse | null>(null);
 
   const user = useAuthStore((s) => s.user);
+  const clearChannelUnread = useServerStore((s) => s.clearChannelUnread);
   const {
     messages,
     isLoadingMessages,
@@ -78,8 +84,13 @@ export default function ChannelChatScreen() {
   const [selectedMessage, setSelectedMessage] = useState<ChannelMessage | null>(null);
   const [actionSheetVisible, setActionSheetVisible] = useState(false);
   const [editingMessage, setEditingMessage] = useState<ChannelMessage | null>(null);
+  const [replyingToMessage, setReplyingToMessage] = useState<ChannelMessage | null>(null);
   const [emojiPickerVisible, setEmojiPickerVisible] = useState(false);
   const [emojiTargetMessageId, setEmojiTargetMessageId] = useState<string | null>(null);
+  const [searchPanelVisible, setSearchPanelVisible] = useState(false);
+
+  const [myMemberStatus, setMyMemberStatus] = useState<ServerMemberResponse | null>(null);
+  const isTimedOut = !!myMemberStatus?.timeoutUntil && new Date(myMemberStatus.timeoutUntil) > new Date();
 
   // ── Load messages on mount ─────────────────────────────
   useEffect(() => {
@@ -89,7 +100,7 @@ export default function ChannelChatScreen() {
     return () => {
       clearMessages();
     };
-  }, [channelId]);
+  }, [channelId, clearMessages, fetchMessages]);
 
   useEffect(() => {
     const loadChannel = async () => {
@@ -101,27 +112,45 @@ export default function ChannelChatScreen() {
       try {
         const response = await getChannelById(Number(channelId));
         setChannelInfo(response);
+        if (response?.serverId) {
+          clearChannelUnread(response.serverId, Number(channelId));
+          
+          // Load my member status to check for timeout
+          try {
+            const members = await getServerMembers(response.serverId);
+            const myStatus = members.find(m => m.userId === Number(user?.id));
+            setMyMemberStatus(myStatus || null);
+          } catch (err) {
+            console.error('Failed to fetch server members for timeout check:', err);
+          }
+        }
+        await markChannelAsRead(Number(channelId));
       } catch {
         setChannelInfo(null);
       }
     };
 
     void loadChannel();
-  }, [channelId]);
+  }, [channelId, clearChannelUnread, user?.id]);
 
   // ── Subscribe to real-time updates ─────────────────────
   useChannelWebSocket(channelId || '');
 
   // ── Send message handler ───────────────────────────────
   const handleSend = useCallback(
-    (content: string, attachmentUrls?: string[]) => {
+    (content: string, attachments?: ChannelMessage['attachments'], replyToId?: string) => {
       if (!channelId) return;
+      if (isTimedOut) {
+        Alert.alert('Timeout', 'You are currently timed out and cannot send messages.');
+        return;
+      }
       sendMessage(channelId, {
         content,
-        attachments: attachmentUrls,
+        attachments,
+        replyToId,
       });
     },
-    [channelId, sendMessage],
+    [channelId, isTimedOut, sendMessage],
   );
 
   // ── Message long-press handler ─────────────────────────
@@ -144,6 +173,15 @@ export default function ChannelChatScreen() {
       icon: 'copy-outline' as const,
       onPress: () => {
         Clipboard.setString(selectedMessage.content);
+      },
+    });
+
+    actions.push({
+      id: 'reply',
+      label: 'Reply',
+      icon: 'return-up-back-outline' as const,
+      onPress: () => {
+        setReplyingToMessage(selectedMessage);
       },
     });
 
@@ -302,6 +340,7 @@ export default function ChannelChatScreen() {
             onToggleReaction={handleToggleReaction}
             onAddReaction={handleAddReaction}
             currentUserId={user?.id}
+            onPressReplyTarget={scrollToMessageById}
           />
         </View>
       );
@@ -317,6 +356,21 @@ export default function ChannelChatScreen() {
       loadMoreMessages();
     }
   }, [hasMoreMessages, isLoadingMessages, loadMoreMessages]);
+
+  const scrollToMessageById = useCallback((targetMessageId: string) => {
+    const targetIndex = messages.findIndex((item) => item.id === targetMessageId);
+    if (targetIndex < 0) {
+      Alert.alert('Not loaded yet', 'Original message is not loaded in current list. Scroll up to load older messages.');
+      return;
+    }
+
+    pendingScrollIndexRef.current = targetIndex;
+    flatListRef.current?.scrollToIndex({
+      index: targetIndex,
+      animated: true,
+      viewPosition: 0.45,
+    });
+  }, [messages]);
 
   const handleOpenMembers = useCallback(() => {
     const serverId = channelInfo?.serverId;
@@ -357,7 +411,7 @@ export default function ChannelChatScreen() {
 
         {/* Header Actions */}
         <View style={styles.headerActions}>
-          <Pressable style={styles.actionBtn}>
+          <Pressable style={styles.actionBtn} onPress={() => setSearchPanelVisible(true)}>
             <Ionicons
               name="search"
               size={20}
@@ -378,57 +432,95 @@ export default function ChannelChatScreen() {
         </View>
       </View>
 
-      {/* Messages list (inverted = newest at bottom) */}
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        renderItem={renderMessage}
-        keyExtractor={keyExtractor}
-        inverted
-        onEndReached={handleEndReached}
-        onEndReachedThreshold={0.3}
-        ListFooterComponent={
-          isLoadingMessages ? (
-            <ActivityIndicator
-              color={DiscordColors.blurple}
-              style={styles.loader}
-            />
-          ) : null
-        }
-        ListEmptyComponent={
-          !isLoadingMessages ? (
-            <View style={styles.emptyContainer}>
-              <View style={styles.hashCircle}>
-                <Feather name="hash" size={40} color={DiscordColors.textPrimary} />
-              </View>
-              <ThemedText style={styles.emptyTitle}>
-                Welcome to channel!
-              </ThemedText>
-              <ThemedText style={styles.emptySubtitle}>
-                This is the start of the channel.
-              </ThemedText>
-            </View>
-          ) : null
-        }
-        contentContainerStyle={
-          messages.length === 0 ? styles.emptyList : styles.listContent
-        }
-      />
+      <KeyboardAvoidingView
+        style={styles.chatArea}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
+      >
+        {/* Messages list (inverted = newest at bottom) */}
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          renderItem={renderMessage}
+          keyExtractor={keyExtractor}
+          inverted
+          onEndReached={handleEndReached}
+          onEndReachedThreshold={0.3}
+          keyboardShouldPersistTaps="handled"
+          onScrollToIndexFailed={(info) => {
+            const retryIndex = pendingScrollIndexRef.current ?? info.index;
+            flatListRef.current?.scrollToOffset({
+              offset: info.averageItemLength * retryIndex,
+              animated: true,
+            });
 
-      {/* Chat input or Edit input */}
-      {editingMessage ? (
-        <EditMessageInput
-          originalContent={editingMessage.content}
-          onSave={handleEditSave}
-          onCancel={() => setEditingMessage(null)}
+            setTimeout(() => {
+              flatListRef.current?.scrollToIndex({
+                index: retryIndex,
+                animated: true,
+                viewPosition: 0.45,
+              });
+            }, 120);
+          }}
+          ListFooterComponent={
+            isLoadingMessages ? (
+              <ActivityIndicator
+                color={DiscordColors.blurple}
+                style={styles.loader}
+              />
+            ) : null
+          }
+          ListEmptyComponent={
+            !isLoadingMessages ? (
+              <View style={styles.emptyContainer}>
+                <View style={styles.hashCircle}>
+                  <Feather name="hash" size={40} color={DiscordColors.textPrimary} />
+                </View>
+                <ThemedText style={styles.emptyTitle}>
+                  Welcome to channel!
+                </ThemedText>
+                <ThemedText style={styles.emptySubtitle}>
+                  This is the start of the channel.
+                </ThemedText>
+              </View>
+            ) : null
+          }
+          contentContainerStyle={
+            messages.length === 0 ? styles.emptyList : styles.listContent
+          }
         />
-      ) : (
-        <ChatInput
-          onSend={handleSend}
-          placeholder={`Message in #${channelInfo?.name || 'channel'}`}
-          disabled={isSending}
-        />
-      )}
+
+        {/* Chat input or Edit input */}
+        {editingMessage ? (
+          <EditMessageInput
+            originalContent={editingMessage.content}
+            onSave={handleEditSave}
+            onCancel={() => setEditingMessage(null)}
+          />
+        ) : (
+          <ChatInput
+            onSend={handleSend}
+            placeholder={
+              isTimedOut 
+                ? "You are timed out" 
+                : `Message in #${channelInfo?.name || 'channel'}`
+            }
+            disabled={isSending || isTimedOut}
+            replyToMessage={
+              replyingToMessage
+                ? {
+                    id: replyingToMessage.id,
+                    content: replyingToMessage.content,
+                    attachments: replyingToMessage.attachments,
+                    senderName: replyingToMessage.sender.displayName || replyingToMessage.sender.username,
+                    deleted: replyingToMessage.deleted,
+                  }
+                : null
+            }
+            onCancelReply={() => setReplyingToMessage(null)}
+          />
+        )}
+      </KeyboardAvoidingView>
 
       {/* Action Sheet */}
       <MessageActionSheet
@@ -450,6 +542,18 @@ export default function ChannelChatScreen() {
         }}
         onSelectEmoji={handleEmojiSelected}
       />
+
+      {/* Message Search Panel */}
+      <MessageSearchPanel
+        visible={searchPanelVisible}
+        mode="channel"
+        channelId={channelId}
+        onClose={() => setSearchPanelVisible(false)}
+        onSelectResult={(messageId) => {
+          setSearchPanelVisible(false);
+          setTimeout(() => scrollToMessageById(messageId), 300);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -459,6 +563,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: DiscordColors.primaryBackground,
+  },
+  chatArea: {
+    flex: 1,
   },
   header: {
     flexDirection: 'row',

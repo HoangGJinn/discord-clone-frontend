@@ -18,22 +18,37 @@ class _ReportedMessagesScreenState extends State<ReportedMessagesScreen> {
   void initState() {
     super.initState();
     _controller = ModerationController();
+    _controller.addListener(_onControllerUpdate);
     _controller.loadReports();
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_onControllerUpdate);
+    super.dispose();
+  }
+
+  void _onControllerUpdate() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: AppColors.background,
-        elevation: 0,
-        title: const Text('Báo cáo vi phạm', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700)),
-        centerTitle: false,
-      ),
       body: SafeArea(
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 20, 16, 12),
+              child: SectionHeader(
+                title: 'Báo cáo vi phạm',
+                subtitle: 'Quản lý các tin nhắn bị người dùng báo cáo',
+              ),
+            ),
             // Filter tabs
             _FilterTabs(
               selected: _controller.selectedFilter,

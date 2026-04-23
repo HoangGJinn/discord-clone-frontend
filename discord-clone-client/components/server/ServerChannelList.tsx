@@ -20,10 +20,12 @@ import { DiscordColors, Spacing } from '@/constants/theme';
 interface ServerChannelListProps {
   serverDetails: ServerDetailsResponse | null;
   activeChannelId?: number | null;
+  unreadByChannelId?: Record<number, number>;
   isLoading?: boolean;
   isManager?: boolean;
   voiceChannelCounts?: Record<number, number>;
   onChannelPress: (channel: ChannelResponse) => void;
+  onChannelLongPress?: (channel: ChannelResponse) => void;
   onAddCategory?: () => void;
   onAddChannel?: (categoryId: number | null) => void;
   onEditCategory?: (category: CategoryResponse) => void;
@@ -38,21 +40,26 @@ const sortByPosition = <T extends { position?: number }>(items: T[]) =>
 const ChannelRow = ({
   channel,
   active,
+  unreadCount,
   isManager,
   voiceCount,
   onPress,
   onEdit,
   onDelete,
+  onChannelLongPress,
 }: {
   channel: ChannelResponse;
   active: boolean;
+  unreadCount: number;
   isManager: boolean;
   voiceCount: number;
   onPress: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
+  onChannelLongPress?: (channel: ChannelResponse) => void;
 }) => {
   const isVoice = channel.type === 'VOICE';
+  const hasUnread = channel.type === 'TEXT' && unreadCount > 0;
   const voiceMeta = isVoice
     ? channel.userLimit && channel.userLimit > 0
       ? `${voiceCount}/${channel.userLimit}`
@@ -60,6 +67,10 @@ const ChannelRow = ({
     : null;
 
   const handleLongPress = () => {
+    if (onChannelLongPress) {
+      onChannelLongPress(channel);
+      return;
+    }
     if (!isManager || !onEdit || !onDelete) return;
 
     Alert.alert(`Manage #${channel.name}`, 'Choose an action for this channel.', [
@@ -95,6 +106,7 @@ const ChannelRow = ({
       <ThemedText style={[styles.channelName, active && styles.channelNameActive]}>
         {channel.name}
       </ThemedText>
+      {hasUnread ? <View style={styles.unreadDot} /> : null}
       {voiceMeta ? <ThemedText style={styles.voiceMeta}>{voiceMeta}</ThemedText> : null}
     </Pressable>
   );
@@ -103,10 +115,12 @@ const ChannelRow = ({
 export function ServerChannelList({
   serverDetails,
   activeChannelId,
+  unreadByChannelId = {},
   isLoading = false,
   isManager = false,
   voiceChannelCounts = {},
   onChannelPress,
+  onChannelLongPress,
   onAddCategory,
   onAddChannel,
   onEditCategory,
@@ -162,11 +176,13 @@ export function ServerChannelList({
             key={channel.id}
             channel={channel}
             active={activeChannelId === channel.id}
+            unreadCount={unreadByChannelId[channel.id] ?? channel.unreadCount ?? 0}
             isManager={isManager}
             voiceCount={voiceChannelCounts[channel.id] ?? 0}
             onPress={() => onChannelPress(channel)}
             onEdit={() => onEditChannel?.(channel)}
             onDelete={() => onDeleteChannel?.(channel)}
+            onChannelLongPress={onChannelLongPress}
           />
         ))}
       </View>
@@ -358,6 +374,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     marginLeft: Spacing.sm,
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: DiscordColors.red,
+    marginLeft: Spacing.xs,
   },
   compactAddCategoryButton: {
     borderRadius: 999,

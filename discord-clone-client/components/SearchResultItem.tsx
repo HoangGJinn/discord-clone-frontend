@@ -2,6 +2,8 @@ import React, { memo } from 'react';
 import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { Avatar } from './Avatar';
+import { UserAvatarWithActions } from './UserAvatarWithActions';
+import { UserRowNameplate } from './UserRowNameplate';
 import { ThemedText } from './themed-text';
 import { DiscordColors, Spacing } from '@/constants/theme';
 import { SearchServer, SearchChannel, SearchMember } from '@/types/search';
@@ -90,27 +92,33 @@ interface MemberItemProps {
 
 function SearchMemberItemInner({ member, onPress }: MemberItemProps) {
   return (
-    <TouchableOpacity style={styles.item} onPress={onPress} activeOpacity={0.6}>
-      <Avatar
-        name={member.displayName || member.username}
-        uri={member.avatar}
-        size={40}
-        status={
-          (member.status?.toUpperCase() as 'ONLINE' | 'IDLE' | 'DND' | 'OFFLINE') ||
-          'OFFLINE'
-        }
-      />
-      <View style={[styles.info, { marginLeft: Spacing.md }]}>
-        <ThemedText style={styles.title} numberOfLines={1}>
-          {member.displayName || member.username}
-        </ThemedText>
-        <ThemedText style={styles.subtitle}>@{member.username}</ThemedText>
-      </View>
-      <Ionicons
-        name="chevron-forward"
-        size={18}
-        color={DiscordColors.textMuted}
-      />
+    <TouchableOpacity style={styles.itemWrapper} onPress={onPress} activeOpacity={0.6}>
+      <UserRowNameplate cardEffectId={member.cardEffectId} style={styles.item}>
+        <UserAvatarWithActions
+          user={{
+            id: member.userId || member.id,
+            username: member.username,
+            displayName: member.displayName,
+            avatar: member.avatarUrl || member.avatar,
+            status: member.status,
+            avatarEffectId: member.avatarEffectId,
+            bannerEffectId: member.bannerEffectId,
+            cardEffectId: member.cardEffectId,
+          }}
+          size={40}
+        />
+        <View style={[styles.info, { marginLeft: Spacing.md }]}>
+          <ThemedText style={styles.title} numberOfLines={1}>
+            {member.displayName || member.username}
+          </ThemedText>
+          <ThemedText style={styles.subtitle}>@{member.username}</ThemedText>
+        </View>
+        <Ionicons
+          name="chevron-forward"
+          size={18}
+          color={DiscordColors.textMuted}
+        />
+      </UserRowNameplate>
     </TouchableOpacity>
   );
 }
@@ -121,11 +129,15 @@ export const SearchMemberItem = memo(SearchMemberItemInner);
 
 // ─── Styles ──────────────────────────────────────────────────
 const styles = StyleSheet.create({
+  itemWrapper: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+  },
   item: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.lg,
+    paddingHorizontal: Spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: DiscordColors.divider,
   },

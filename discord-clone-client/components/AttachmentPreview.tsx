@@ -5,52 +5,68 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { SlideInDown, FadeOut } from 'react-native-reanimated';
 import { ThemedText } from './themed-text';
 import { DiscordColors, Spacing } from '@/constants/theme';
 
 // ─── Props ───────────────────────────────────────────────────
 interface AttachmentPreviewProps {
-  uri: string;
-  isUploading: boolean;
-  onRemove: () => void;
+  items: {
+    id: string;
+    uri: string;
+    fileName: string;
+    isImage: boolean;
+    isUploading: boolean;
+  }[];
+  onRemove: (id: string) => void;
 }
 
 // ─── Component ───────────────────────────────────────────────
 function AttachmentPreviewInner({
-  uri,
-  isUploading,
+  items,
   onRemove,
 }: AttachmentPreviewProps) {
+  if (!items.length) return null;
+
   return (
-    <Animated.View
-      entering={SlideInDown.springify().damping(18)}
-      exiting={FadeOut.duration(150)}
-      style={styles.container}
-    >
-      <View style={styles.preview}>
-        <Image source={{ uri }} style={styles.thumbnail} resizeMode="cover" />
+    <View style={styles.container}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
+        {items.map((item) => (
+          <View key={item.id} style={styles.preview}>
+            {item.isImage ? (
+              <Image source={{ uri: item.uri }} style={styles.thumbnail} resizeMode="cover" />
+            ) : (
+              <View style={styles.fileThumb}>
+                <Ionicons name="document-outline" size={26} color={DiscordColors.textSecondary} />
+              </View>
+            )}
 
-        {isUploading && (
-          <View style={styles.uploadOverlay}>
-            <ActivityIndicator color="#FFFFFF" size="small" />
-            <ThemedText style={styles.uploadText}>Uploading...</ThemedText>
+            {item.isUploading && (
+              <View style={styles.uploadOverlay}>
+                <ActivityIndicator color="#FFFFFF" size="small" />
+                <ThemedText style={styles.uploadText}>Uploading...</ThemedText>
+              </View>
+            )}
+
+            <ThemedText numberOfLines={1} style={styles.fileName}>
+              {item.fileName}
+            </ThemedText>
+
+            {!item.isUploading && (
+              <TouchableOpacity
+                style={styles.removeBtn}
+                onPress={() => onRemove(item.id)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="close-circle" size={22} color={DiscordColors.red} />
+              </TouchableOpacity>
+            )}
           </View>
-        )}
-
-        {!isUploading && (
-          <TouchableOpacity
-            style={styles.removeBtn}
-            onPress={onRemove}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="close-circle" size={22} color={DiscordColors.red} />
-          </TouchableOpacity>
-        )}
-      </View>
-    </Animated.View>
+        ))}
+      </ScrollView>
+    </View>
   );
 }
 
@@ -67,18 +83,34 @@ const styles = StyleSheet.create({
   },
   preview: {
     width: 80,
-    height: 80,
+    height: 102,
     borderRadius: 8,
     overflow: 'hidden',
     position: 'relative',
+    marginRight: Spacing.sm,
   },
   thumbnail: {
     width: '100%',
-    height: '100%',
+    height: 80,
     backgroundColor: DiscordColors.tertiaryBackground,
   },
+  fileThumb: {
+    width: '100%',
+    height: 80,
+    borderRadius: 8,
+    backgroundColor: DiscordColors.tertiaryBackground,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  row: {
+    paddingBottom: 2,
+  },
   uploadOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 80,
     backgroundColor: 'rgba(0,0,0,0.6)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -95,5 +127,12 @@ const styles = StyleSheet.create({
     right: -2,
     backgroundColor: DiscordColors.secondaryBackground,
     borderRadius: 11,
+  },
+  fileName: {
+    marginTop: 4,
+    height: 14,
+    fontSize: 11,
+    lineHeight: 14,
+    color: DiscordColors.textMuted,
   },
 });

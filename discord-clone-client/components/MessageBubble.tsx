@@ -1,15 +1,18 @@
 import React, { memo } from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
-import Animated, { FadeIn } from 'react-native-reanimated';
+import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
-import { Avatar } from './Avatar';
+import { UserAvatarWithActions } from './UserAvatarWithActions';
+import { NAMEPLATE_EFFECTS } from '@/constants/profileEffects';
 import { ThemedText } from './themed-text';
 import { ReactionBar } from './ReactionBar';
-import { ImageAttachment } from './ImageAttachment';
+import { MessageAttachments } from './MessageAttachments';
 import { DiscordColors, Spacing } from '@/constants/theme';
 import { DirectMessage } from '@/types/dm';
+import { isImageAttachment } from '@/utils/attachments';
 import { formatMessageTime } from '@/utils/formatTime';
+import { useAuthStore } from '@/store/useAuthStore';
 
 // ─── Props Interface ─────────────────────────────────────────
 interface MessageBubbleProps {
@@ -27,6 +30,8 @@ interface MessageBubbleProps {
   onAddReaction?: (messageId: string) => void;
   /** Current user ID for reaction highlighting */
   currentUserId?: string;
+  /** Jump to original message when tapping reply preview */
+  onPressReplyTarget?: (targetMessageId: string) => void;
 }
 
 // ─── Component (SRP: Only renders a single message bubble) ───
@@ -38,7 +43,10 @@ function MessageBubbleInner({
   onToggleReaction,
   onAddReaction,
   currentUserId,
+  onPressReplyTarget,
 }: MessageBubbleProps) {
+  const currentUser = useAuthStore((state) => state.user);
+
   const handleLongPress = () => {
     if (onLongPress) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -46,25 +54,78 @@ function MessageBubbleInner({
     }
   };
 
+  const resolvedAvatar = isOwn
+    ? message.sender.avatar || currentUser?.avatar || ''
+    : message.sender.avatar;
+
+  const replyToMessage = message.replyToMessage;
+  const replyAuthor =
+    replyToMessage?.sender?.displayName ||
+    replyToMessage?.sender?.username ||
+    replyToMessage?.senderName ||
+    'Unknown';
+  const replySummary = (() => {
+    if (!replyToMessage) return '';
+    if (replyToMessage.deleted) return 'Original message deleted';
+    const content = replyToMessage.content?.trim();
+    if (content) {
+      return content;
+    }
+    const attachments = replyToMessage.attachments || [];
+    if (!attachments.length) {
+      return 'Message';
+    }
+
+    const hasImage = attachments.some((item) => isImageAttachment(item));
+    if (hasImage && attachments.length === 1) {
+      return 'Photo';
+    }
+    if (hasImage) {
+      return `${attachments.length} attachments`;
+    }
+    return attachments.length === 1 ? 'File' : `${attachments.length} files`;
+  })();
+
   return (
     <TouchableOpacity
       activeOpacity={0.8}
       onLongPress={handleLongPress}
       delayLongPress={400}
     >
-      <Animated.View
-        entering={FadeIn.duration(200)}
+      <View
         style={[
           styles.container,
           showHeader ? styles.withHeader : styles.grouped,
         ]}
       >
+        {showHeader && message.sender.cardEffectId && (
+          (() => {
+            const effect = NAMEPLATE_EFFECTS.find(e => e.id === message.sender.cardEffectId);
+            if (!effect) return null;
+            return (
+              <Image
+                source={effect.uri}
+                style={styles.messageNameplate}
+                pointerEvents="none"
+                contentFit="cover"
+              />
+            );
+          })()
+        )}
         {/* Avatar column */}
         <View style={styles.avatarColumn}>
           {showHeader ? (
-            <Avatar
-              name={message.sender.username}
-              uri={message.sender.avatar}
+            <UserAvatarWithActions
+              user={{
+                id: message.sender.id,
+                username: message.sender.username,
+                displayName: message.sender.displayName,
+                avatar: resolvedAvatar,
+                status: message.sender.status,
+                avatarEffectId: message.sender.avatarEffectId,
+                bannerEffectId: message.sender.bannerEffectId,
+                cardEffectId: message.sender.cardEffectId,
+              }}
               size={40}
             />
           ) : (
@@ -103,9 +164,29 @@ function MessageBubbleInner({
             {message.content}
           </ThemedText>
 
-          {/* Image attachments */}
+          {replyToMessage && (
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={() => {
+                if (replyToMessage.id) {
+                  onPressReplyTarget?.(replyToMessage.id);
+                }
+              }}
+              style={styles.replyBlock}
+            >
+              <View style={styles.replyBar} />
+              <View style={styles.replyBody}>
+                <ThemedText style={styles.replyAuthor}>{replyAuthor}</ThemedText>
+                <ThemedText numberOfLines={1} style={styles.replyContent}>
+                  {replySummary}
+                </ThemedText>
+              </View>
+            </TouchableOpacity>
+          )}
+
+          {/* Attachments */}
           {message.attachments && message.attachments.length > 0 && (
-            <ImageAttachment attachments={message.attachments} />
+            <MessageAttachments attachments={message.attachments} />
           )}
 
           {/* Edited indicator */}
@@ -125,7 +206,7 @@ function MessageBubbleInner({
             />
           )}
         </View>
-      </Animated.View>
+      </View>
     </TouchableOpacity>
   );
 }
@@ -182,9 +263,46 @@ const styles = StyleSheet.create({
     color: DiscordColors.textPrimary,
     lineHeight: 22,
   },
+  replyBlock: {
+    marginTop: 6,
+    marginBottom: 2,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: DiscordColors.secondaryBackground,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  replyBar: {
+    width: 3,
+    alignSelf: 'stretch',
+    borderRadius: 2,
+    backgroundColor: DiscordColors.blurple,
+    marginRight: 8,
+  },
+  replyBody: {
+    flex: 1,
+  },
+  replyAuthor: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: DiscordColors.blurple,
+  },
+  replyContent: {
+    fontSize: 12,
+    color: DiscordColors.textSecondary,
+    marginTop: 1,
+  },
   editedLabel: {
     fontSize: 10,
     color: DiscordColors.textMuted,
     marginTop: 2,
+  },
+  messageNameplate: {
+    ...StyleSheet.absoluteFillObject,
+    height: 50, // Constrain height for message header
+    opacity: 0.15, // Subtle background
+    borderTopLeftRadius: 10,
+    borderTopRightRadius: 10,
   },
 });

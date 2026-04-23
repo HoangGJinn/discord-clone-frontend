@@ -5,10 +5,14 @@ import {
   getMyServers,
   joinServer,
   ServerResponse,
+  transferOwnership,
+  leaveServer,
+  deleteServer,
 } from '@/services/serverService';
 
 interface ServerState {
   servers: ServerResponse[];
+  channelUnreadByServer: Record<number, Record<number, number>>;
   activeServerId: number | null;
   isLoadingServers: boolean;
   isCreatingServer: boolean;
@@ -21,7 +25,13 @@ interface ServerActions {
   createNewServer: (payload: CreateServerInput) => Promise<ServerResponse | null>;
   joinServerByCode: (inviteCode: string) => Promise<ServerResponse | null>;
   setActiveServerId: (serverId: number | null) => void;
+  setChannelUnreadMap: (serverId: number, unreadByChannel: Record<number, number>) => void;
+  incrementChannelUnread: (serverId: number, channelId: number) => void;
+  clearChannelUnread: (serverId: number, channelId: number) => void;
   clearError: () => void;
+  transferOwnership: (serverId: number, newOwnerId: number) => Promise<void>;
+  leaveCurrentServer: (serverId: number) => Promise<void>;
+  deleteCurrentServer: (serverId: number) => Promise<void>;
 }
 
 type ServerStore = ServerState & ServerActions;
@@ -44,6 +54,7 @@ const normalizeError = (error: unknown, fallback: string): string => {
 
 export const useServerStore = create<ServerStore>((set, get) => ({
   servers: [],
+  channelUnreadByServer: {},
   activeServerId: null,
   isLoadingServers: false,
   isCreatingServer: false,
@@ -111,6 +122,119 @@ export const useServerStore = create<ServerStore>((set, get) => ({
 
   setActiveServerId: (serverId) => set({ activeServerId: serverId }),
 
+  setChannelUnreadMap: (serverId, unreadByChannel) =>
+    set((state) => {
+      const totalUnread = Object.values(unreadByChannel).reduce(
+        (acc, value) => acc + Math.max(0, Number(value) || 0),
+        0,
+      );
+      return {
+        channelUnreadByServer: {
+          ...state.channelUnreadByServer,
+          [serverId]: unreadByChannel,
+        },
+        servers: state.servers.map((server) =>
+          server.id === serverId
+            ? { ...server, unreadCount: totalUnread }
+            : server,
+        ),
+      };
+    }),
+
+  incrementChannelUnread: (serverId, channelId) =>
+    set((state) => {
+      const currentServerMap = state.channelUnreadByServer[serverId] || {};
+      const serverUnread = state.servers.find((server) => server.id === serverId)?.unreadCount ?? 0;
+      const hasChannelMap = Object.keys(currentServerMap).length > 0;
+      const baseChannelUnread = hasChannelMap
+        ? (currentServerMap[channelId] || 0)
+        : Math.max(0, Number(serverUnread) || 0);
+      const nextServerMap = {
+        ...currentServerMap,
+        [channelId]: baseChannelUnread + 1,
+      };
+      const totalUnread = hasChannelMap
+        ? Object.values(nextServerMap).reduce((acc, value) => acc + (value || 0), 0)
+        : (Math.max(0, Number(serverUnread) || 0) + 1);
+      return {
+        channelUnreadByServer: {
+          ...state.channelUnreadByServer,
+          [serverId]: nextServerMap,
+        },
+        servers: state.servers.map((server) =>
+          server.id === serverId
+            ? { ...server, unreadCount: totalUnread }
+            : server,
+        ),
+      };
+    }),
+
+  clearChannelUnread: (serverId, channelId) =>
+    set((state) => {
+      const currentServerMap = state.channelUnreadByServer[serverId] || {};
+      if ((currentServerMap[channelId] || 0) <= 0) {
+        return {};
+      }
+      const nextServerMap = {
+        ...currentServerMap,
+        [channelId]: 0,
+      };
+      const totalUnread = Object.values(nextServerMap).reduce((acc, value) => acc + (value || 0), 0);
+      return {
+        channelUnreadByServer: {
+          ...state.channelUnreadByServer,
+          [serverId]: nextServerMap,
+        },
+        servers: state.servers.map((server) =>
+          server.id === serverId
+            ? { ...server, unreadCount: totalUnread }
+            : server,
+        ),
+      };
+    }),
+
   clearError: () => set({ error: null }),
+
+  transferOwnership: async (serverId, newOwnerId) => {
+    set({ isLoadingServers: true, error: null });
+    try {
+      await transferOwnership(serverId, newOwnerId);
+      await get().fetchServers();
+    } catch (error) {
+      set({
+        isLoadingServers: false,
+        error: normalizeError(error, 'Failed to transfer ownership.'),
+      });
+      throw error;
+    }
+  },
+
+  leaveCurrentServer: async (serverId) => {
+    set({ isLoadingServers: true, error: null });
+    try {
+      await leaveServer(serverId);
+      await get().fetchServers();
+    } catch (error) {
+      set({
+        isLoadingServers: false,
+        error: normalizeError(error, 'Failed to leave server.'),
+      });
+      throw error;
+    }
+  },
+
+  deleteCurrentServer: async (serverId) => {
+    set({ isLoadingServers: true, error: null });
+    try {
+      await deleteServer(serverId);
+      await get().fetchServers();
+    } catch (error) {
+      set({
+        isLoadingServers: false,
+        error: normalizeError(error, 'Failed to delete server.'),
+      });
+      throw error;
+    }
+  },
 }));
 

@@ -18,19 +18,31 @@ export interface DirectMessage {
   sender: User;
   content: string;
   attachments?: Attachment[];
+  replyToId?: string;
+  replyToMessage?: ReplyMessage;
   reactions?: Reaction[];
   edited?: boolean;
+  deleted?: boolean;
   pinned?: boolean;
   createdAt: string;
   updatedAt?: string;
 }
 
+export interface ReplyMessage {
+  id: string;
+  content: string;
+  attachments?: Attachment[];
+  sender?: Pick<User, 'id' | 'username' | 'displayName'>;
+  senderName?: string;
+  deleted?: boolean;
+}
+
 // ─── Attachment ──────────────────────────────────────────────
 export interface Attachment {
-  id: string;
+  id?: string;
   url: string;
-  filename: string;
-  contentType: string;
+  filename?: string;
+  contentType?: string;
   size?: number;
 }
 
@@ -45,6 +57,8 @@ export interface Reaction {
 export interface SendDirectMessagePayload {
   conversationId: string;
   content: string;
+  attachments?: Attachment[];
+  replyToId?: string;
 }
 
 // ─── Paginated Response ──────────────────────────────────────

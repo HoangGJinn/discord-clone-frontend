@@ -24,6 +24,7 @@ interface SearchActions {
   searchServers: (query: string) => Promise<void>;
   searchChannels: (query: string) => Promise<void>;
   searchMembers: (query: string) => Promise<void>;
+  searchFriends: (query: string) => Promise<void>;
   clearResults: () => void;
   clearError: () => void;
 }
@@ -34,6 +35,7 @@ const emptyResults: SearchResults = {
   servers: [],
   channels: [],
   members: [],
+  friends: [],
 };
 
 export const useSearchStore = create<SearchStore>((set, get) => ({
@@ -65,7 +67,7 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
     try {
       if (searchType === "all") {
         // Fetch all categories in parallel
-        const [servers, channels, members] = await Promise.allSettled([
+        const [servers, channels, members, friends] = await Promise.allSettled([
           apiClient
             .get("/search/servers", { params: { keyword: query } })
             .then((r) => r.data),
@@ -74,6 +76,9 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
             .then((r) => r.data),
           apiClient
             .get("/search/members", { params: { keyword: query } })
+            .then((r) => r.data),
+          apiClient
+            .get("/friends/search", { params: { keyword: query } })
             .then((r) => r.data),
         ]);
 
@@ -85,6 +90,8 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
               channels.status === "fulfilled" ? channels.value : [],
             members:
               members.status === "fulfilled" ? members.value : [],
+            friends:
+              friends.status === "fulfilled" ? friends.value : [],
           },
           isSearching: false,
         });
@@ -94,6 +101,8 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
         await get().searchChannels(query);
       } else if (searchType === "members") {
         await get().searchMembers(query);
+      } else if (searchType === "friends") {
+        await get().searchFriends(query);
       }
     } catch (err: any) {
       set({
@@ -147,6 +156,24 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
       });
       set((state) => ({
         results: { ...state.results, members: response.data || [] },
+        isSearching: false,
+      }));
+    } catch (err: any) {
+      set({
+        error: err.response?.data?.message || err.message,
+        isSearching: false,
+      });
+    }
+  },
+
+  searchFriends: async (query: string) => {
+    set({ isSearching: true, error: null });
+    try {
+      const response = await apiClient.get("/friends/search", {
+        params: { keyword: query },
+      });
+      set((state) => ({
+        results: { ...state.results, friends: response.data || [] },
         isSearching: false,
       }));
     } catch (err: any) {

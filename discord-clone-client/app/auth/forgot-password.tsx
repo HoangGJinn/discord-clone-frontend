@@ -3,7 +3,7 @@ import { CustomInput } from "@/components/auth/CustomInput";
 import { DiscordColors, Spacing } from "@/constants/theme";
 import { useAuthStore } from "@/store/useAuthStore";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import React, { useState } from "react";
 import {
   Alert,
@@ -24,9 +24,11 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export default function ForgotPasswordScreen() {
   const forgotPassword = useAuthStore((state) => state.forgotPassword);
   const resendOtp = useAuthStore((state) => state.resendOtp);
+  const params = useLocalSearchParams<{ email?: string }>();
+  const initialEmail = typeof params.email === "string" ? params.email : "";
 
   const [step, setStep] = useState<Step>("email");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(initialEmail);
   const [otp, setOtp] = useState("");
   const [errors, setErrors] = useState<{ email?: string; otp?: string }>({});
   const [submitting, setSubmitting] = useState(false);

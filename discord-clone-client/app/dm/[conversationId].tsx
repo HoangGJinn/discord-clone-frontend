@@ -7,25 +7,32 @@ import {
   TouchableOpacity,
   Alert,
   Clipboard,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Avatar } from '@/components/Avatar';
 import { ThemedText } from '@/components/themed-text';
+import { UserAvatarWithActions } from '@/components/UserAvatarWithActions';
 import { MessageBubble } from '@/components/MessageBubble';
 import { ChatInput } from '@/components/ChatInput';
 import { EditMessageInput } from '@/components/EditMessageInput';
 import { MessageActionSheet } from '@/components/MessageActionSheet';
 import { EmojiPicker } from '@/components/EmojiPicker';
 import { VoiceCallUI } from '@/components/VoiceCallUI';
+import { MessageSearchPanel } from '@/components/MessageSearchPanel';
 import { useDMStore } from '@/store/useDMStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { DirectMessage, getOtherParticipant } from '@/types/dm';
 import { DiscordColors, Spacing } from '@/constants/theme';
+import { NAMEPLATE_EFFECTS } from '@/constants/profileEffects';
 import { isDifferentDay, formatDaySeparator } from '@/utils/formatTime';
 import socketService from '@/services/socketService';
+import { useDMCall } from '@/hooks/useDMCall';
 
 // ─── Custom Hook: Encapsulates WebSocket subscription logic ──
 function useDMWebSocket(conversationId: string) {
@@ -35,26 +42,31 @@ function useDMWebSocket(conversationId: string) {
     if (!conversationId) return;
 
     const destination = `/topic/dm/${conversationId}`;
-
-    void socketService.subscribe(destination, (message) => {
+    const onMessage = (message: DirectMessage) => {
       try {
-        addRealtimeMessage(message as DirectMessage);
+        addRealtimeMessage(message);
       } catch (err) {
         console.error('Failed to parse DM WebSocket message:', err);
       }
-    });
+    };
+
+    void socketService.subscribe(destination, onMessage);
 
     return () => {
-      socketService.unsubscribe(destination);
+      socketService.unsubscribe(destination, onMessage);
     };
   }, [conversationId, addRealtimeMessage]);
 }
 
 // ─── Screen ──────────────────────────────────────────────────
 export default function DMChatScreen() {
-  const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
+  const { conversationId: conversationIdParam, autoAccept, incomingCall } = useLocalSearchParams<{ conversationId: string | string[], autoAccept?: string, incomingCall?: string }>();
   const router = useRouter();
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef = useRef<FlatList<DirectMessage>>(null);
+  const pendingScrollIndexRef = useRef<number | null>(null);
+  const conversationId = Array.isArray(conversationIdParam)
+    ? conversationIdParam[0]
+    : conversationIdParam;
 
   const user = useAuthStore((s) => s.user);
   const {
@@ -66,7 +78,8 @@ export default function DMChatScreen() {
     fetchMessages,
     loadMoreMessages,
     sendMessage,
-    clearMessages,
+    setActiveConversation,
+    markConversationAsRead,
     editMessage,
     deleteMessage,
     addReaction,
@@ -77,11 +90,13 @@ export default function DMChatScreen() {
   const [selectedMessage, setSelectedMessage] = useState<DirectMessage | null>(null);
   const [actionSheetVisible, setActionSheetVisible] = useState(false);
   const [editingMessage, setEditingMessage] = useState<DirectMessage | null>(null);
+  const [replyingToMessage, setReplyingToMessage] = useState<DirectMessage | null>(null);
   const [emojiPickerVisible, setEmojiPickerVisible] = useState(false);
   const [emojiTargetMessageId, setEmojiTargetMessageId] = useState<string | null>(null);
-
-  // ── Day 5: Voice Call State ─────────────────────────────
   const [voiceCallVisible, setVoiceCallVisible] = useState(false);
+  const [callType, setCallType] = useState<'VOICE' | 'VIDEO'>('VOICE');
+  const [shouldAutoStartCall, setShouldAutoStartCall] = useState(false);
+  const [searchPanelVisible, setSearchPanelVisible] = useState(false);
 
   // ── Find the other participant from conversations list ─
   const conversation = conversations.find((c) => c.id === conversationId);
@@ -90,46 +105,133 @@ export default function DMChatScreen() {
       ? getOtherParticipant(conversation, user.id)
       : null;
 
-  // ── Voice Call Handlers ─────────────────────────────────
-  const handleSendMessageInCall = useCallback(() => {
-    // Đóng call UI, quay lại chat (cuộc gọi vẫn tiếp tục ngầm)
-    setVoiceCallVisible(false);
-  }, []);
+  // ── Day 5: DM call logic with in-room UI ────────────────────────
+  const {
+    activeCall,
+    isInCall,
+    isRemoteSpeaking,
+    isLocalSpeaking,
+    handleStartCall: startDmCall,
+    handleAcceptCall,
+    handleEndCall,
+    handleToggleMute,
+    handleToggleDeafen,
+    handleToggleCamera,
+    handleSwitchCamera,
+  } = useDMCall(conversationId || '', String(user?.id || ''));
+
+  // Open room UI when call is active/pending for this conversation.
+  useEffect(() => {
+    if (!activeCall || !conversationId) return;
+    if (activeCall.conversationId !== conversationId) return;
+    if (activeCall.status === 'ENDED' || activeCall.status === 'DECLINED' || activeCall.status === 'MISSED') {
+      setVoiceCallVisible(false);
+      setShouldAutoStartCall(false);
+      return;
+    }
+    const isCurrentUserCaller = String(activeCall.callerId || '') === String(user?.id || '');
+    const shouldShowRoomUi =
+      activeCall.status === 'ACCEPTED' ||
+      (activeCall.status === 'PENDING' && isCurrentUserCaller);
+    if (!shouldShowRoomUi) {
+      return;
+    }
+    setCallType(activeCall.callType);
+    setVoiceCallVisible(true);
+  }, [activeCall, conversationId, user?.id]);
+
+  // Tự động nhận cuộc gọi nếu người dùng bấm "Nghe" từ Push Notification
+  useEffect(() => {
+    if (!activeCall || !user?.id) return;
+    if (activeCall.status !== 'PENDING') return;
+    if (String(activeCall.receiverId) !== String(user.id)) return;
+
+    if (autoAccept === 'true' || incomingCall === 'true') {
+      console.log('[DMChatScreen] Auto-accepting call from push notification...');
+      handleAcceptCall(activeCall.callType === 'VIDEO').then(() => {
+        setCallType(activeCall.callType);
+        setVoiceCallVisible(true);
+      });
+    }
+  }, [autoAccept, incomingCall, activeCall, user?.id, handleAcceptCall]);
+
+  const handleStartCall = useCallback(async () => {
+    if (!conversationId || !user?.id) return;
+    setCallType('VOICE');
+    setVoiceCallVisible(true);
+
+    // If current user is receiver of a pending call, join that room by accepting.
+    if (
+      activeCall &&
+      activeCall.conversationId === conversationId &&
+      activeCall.status === 'PENDING' &&
+      String(activeCall.receiverId) === String(user.id)
+    ) {
+      await handleAcceptCall(false);
+      return;
+    }
+
+    setShouldAutoStartCall(true);
+    await startDmCall('VOICE');
+  }, [activeCall, conversationId, handleAcceptCall, startDmCall, user?.id]);
+
+  const handleStartVideoCall = useCallback(async () => {
+    if (!conversationId || !user?.id) return;
+    setCallType('VIDEO');
+    setVoiceCallVisible(true);
+
+    if (
+      activeCall &&
+      activeCall.conversationId === conversationId &&
+      activeCall.status === 'PENDING' &&
+      String(activeCall.receiverId) === String(user.id)
+    ) {
+      await handleAcceptCall(true);
+      return;
+    }
+
+    setShouldAutoStartCall(true);
+    await startDmCall('VIDEO');
+  }, [activeCall, conversationId, handleAcceptCall, startDmCall, user?.id]);
 
   const handleLeaveCall = useCallback(() => {
-    console.log('[VoiceCall] Leaving call');
     setVoiceCallVisible(false);
+    setShouldAutoStartCall(false);
   }, []);
-
-  const handleMinimizeCall = useCallback(() => {
-    setVoiceCallVisible(false);
-    console.log('[VoiceCall] Minimized');
-  }, []);
-
-  const handleStartCall = useCallback(() => {
-    setVoiceCallVisible(true);
-    console.log('[VoiceCall] Starting call with:', otherUser?.username);
-  }, [otherUser]);
 
 
   // ── Load messages on mount ─────────────────────────────
   useEffect(() => {
-    if (conversationId) {
-      fetchMessages(conversationId);
-    }
+    if (!conversationId) return;
+
+    setActiveConversation(conversationId);
+    fetchMessages(conversationId);
+    void markConversationAsRead(conversationId);
+
     return () => {
-      clearMessages();
+      setActiveConversation(null);
     };
-  }, [conversationId]);
+  }, [conversationId, fetchMessages, setActiveConversation]);
+
+  // Ensure chat history is refreshed every time screen gets focus.
+  useFocusEffect(
+    useCallback(() => {
+      if (!conversationId) return;
+      setActiveConversation(conversationId);
+      fetchMessages(conversationId);
+      void markConversationAsRead(conversationId);
+      return undefined;
+    }, [conversationId, fetchMessages, markConversationAsRead, setActiveConversation]),
+  );
 
   // ── Subscribe to real-time updates ─────────────────────
   useDMWebSocket(conversationId || '');
 
   // ── Send message handler ───────────────────────────────
   const handleSend = useCallback(
-    (content: string) => {
+    (content: string, attachments?: DirectMessage['attachments'], replyToId?: string) => {
       if (!conversationId) return;
-      sendMessage({ conversationId, content });
+      sendMessage({ conversationId, content, attachments, replyToId });
     },
     [conversationId, sendMessage],
   );
@@ -154,6 +256,15 @@ export default function DMChatScreen() {
       icon: 'copy-outline' as const,
       onPress: () => {
         Clipboard.setString(selectedMessage.content);
+      },
+    });
+
+    actions.push({
+      id: 'reply',
+      label: 'Reply',
+      icon: 'return-up-back-outline' as const,
+      onPress: () => {
+        setReplyingToMessage(selectedMessage);
       },
     });
 
@@ -256,7 +367,7 @@ export default function DMChatScreen() {
       const previous = messages[index + 1]; // next older message (inverted)
 
       if (!previous) return true;
-      if (current.sender.id !== previous.sender.id) return true;
+      if (String(current.sender.id) !== String(previous.sender.id)) return true;
       if (isDifferentDay(previous.createdAt, current.createdAt)) return true;
 
       // Show header if more than 5 minutes gap
@@ -271,7 +382,7 @@ export default function DMChatScreen() {
   // ── Render message item ────────────────────────────────
   const renderMessage = useCallback(
     ({ item, index }: { item: DirectMessage; index: number }) => {
-      const isOwn = item.sender.id === user?.id;
+      const isOwn = String(item.sender.id) === String(user?.id || '');
       const showHeader = shouldShowHeader(index);
 
       // Day separator: check if the next (older) message is on a different day
@@ -298,6 +409,7 @@ export default function DMChatScreen() {
             onToggleReaction={handleToggleReaction}
             onAddReaction={handleAddReaction}
             currentUserId={user?.id}
+            onPressReplyTarget={scrollToMessageById}
           />
         </View>
       );
@@ -313,6 +425,21 @@ export default function DMChatScreen() {
       loadMoreMessages();
     }
   }, [hasMoreMessages, isLoadingMessages, loadMoreMessages]);
+
+  const scrollToMessageById = useCallback((targetMessageId: string) => {
+    const targetIndex = messages.findIndex((item) => item.id === targetMessageId);
+    if (targetIndex < 0) {
+      Alert.alert('Not loaded yet', 'Original message is not loaded in current list. Scroll up to load older messages.');
+      return;
+    }
+
+    pendingScrollIndexRef.current = targetIndex;
+    flatListRef.current?.scrollToIndex({
+      index: targetIndex,
+      animated: true,
+      viewPosition: 0.45,
+    });
+  }, [messages]);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -333,18 +460,34 @@ export default function DMChatScreen() {
         {otherUser && (
           <>
             <View style={styles.headerUser}>
-              <Avatar
-                name={otherUser.displayName || otherUser.username}
-                uri={otherUser.avatar}
+              <UserAvatarWithActions
+                user={{
+                  id: otherUser.id,
+                  username: otherUser.username,
+                  displayName: otherUser.displayName,
+                  avatar: otherUser.avatar,
+                  status: otherUser.status,
+                  bio: otherUser.bio,
+                  avatarEffectId: otherUser.avatarEffectId,
+                  bannerEffectId: otherUser.bannerEffectId,
+                  cardEffectId: otherUser.cardEffectId,
+                }}
                 size={32}
-                status={
-                  (otherUser.status?.toUpperCase() as
-                    | "ONLINE"
-                    | "IDLE"
-                    | "DND"
-                    | "OFFLINE") || "OFFLINE"
-                }
               />
+              {otherUser.cardEffectId && (
+                (() => {
+                  const effect = NAMEPLATE_EFFECTS.find(e => e.id === otherUser.cardEffectId);
+                  if (!effect) return null;
+                  return (
+                    <Image
+                      source={effect.uri}
+                      style={styles.headerNameplate}
+                      pointerEvents="none"
+                      contentFit="cover"
+                    />
+                  );
+                })()
+              )}
               <View style={styles.headerInfo}>
                 <ThemedText style={styles.headerName} numberOfLines={1}>
                   {otherUser.displayName || otherUser.username}
@@ -368,7 +511,7 @@ export default function DMChatScreen() {
                 />
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={() => Alert.alert('Video Call', 'Video call feature coming soon!')}
+                onPress={handleStartVideoCall}
                 style={styles.actionBtn}
               >
                 <Ionicons
@@ -378,12 +521,12 @@ export default function DMChatScreen() {
                 />
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={() => Alert.alert('Search', 'Search feature coming soon!')}
+                onPress={() => setSearchPanelVisible(true)}
                 style={styles.actionBtn}
               >
                 <Ionicons
                   name="search"
-                  size={24}
+                  size={22}
                   color={DiscordColors.textSecondary}
                 />
               </TouchableOpacity>
@@ -399,71 +542,118 @@ export default function DMChatScreen() {
         )}
       </View>
 
-      {/* Messages list (inverted = newest at bottom) */}
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        renderItem={renderMessage}
-        keyExtractor={keyExtractor}
-        inverted
-        onEndReached={handleEndReached}
-        onEndReachedThreshold={0.3}
-        ListFooterComponent={
-          isLoadingMessages ? (
-            <ActivityIndicator
-              color={DiscordColors.blurple}
-              style={styles.loader}
-            />
-          ) : null
-        }
-        ListEmptyComponent={
-          !isLoadingMessages ? (
-            <View style={styles.emptyContainer}>
-              {otherUser && (
-                <>
-                  <Avatar
-                    name={otherUser.displayName || otherUser.username}
-                    uri={otherUser.avatar}
-                    size={72}
-                  />
-                  <ThemedText style={styles.emptyTitle}>
-                    {otherUser.displayName || otherUser.username}
-                  </ThemedText>
-                  <ThemedText style={styles.emptySubtitle}>
-                    This is the beginning of your direct message history with{' '}
-                    <ThemedText style={styles.emptyBold}>
-                      @{otherUser.username}
-                    </ThemedText>
-                    .
-                  </ThemedText>
-                </>
-              )}
-            </View>
-          ) : null
-        }
-        contentContainerStyle={
-          messages.length === 0 ? styles.emptyList : styles.listContent
-        }
-      />
+      <KeyboardAvoidingView
+        style={styles.chatArea}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
+      >
+        {/* Messages list (inverted = newest at bottom) */}
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          renderItem={renderMessage}
+          keyExtractor={keyExtractor}
+          inverted
+          onEndReached={handleEndReached}
+          onEndReachedThreshold={0.3}
+          keyboardShouldPersistTaps="handled"
+          onScrollToIndexFailed={(info) => {
+            const retryIndex = pendingScrollIndexRef.current ?? info.index;
+            flatListRef.current?.scrollToOffset({
+              offset: info.averageItemLength * retryIndex,
+              animated: true,
+            });
 
-      {/* Chat input or Edit input */}
-      {editingMessage ? (
-        <EditMessageInput
-          originalContent={editingMessage.content}
-          onSave={handleEditSave}
-          onCancel={() => setEditingMessage(null)}
-        />
-      ) : (
-        <ChatInput
-          onSend={handleSend}
-          placeholder={
-            otherUser
-              ? `Message @${otherUser.username}`
-              : 'Send a message...'
+            setTimeout(() => {
+              flatListRef.current?.scrollToIndex({
+                index: retryIndex,
+                animated: true,
+                viewPosition: 0.45,
+              });
+            }, 120);
+          }}
+          ListFooterComponent={
+            isLoadingMessages ? (
+              <ActivityIndicator
+                color={DiscordColors.blurple}
+                style={styles.loader}
+              />
+            ) : null
           }
-          disabled={isSending}
+          ListEmptyComponent={
+            !isLoadingMessages ? (
+              <View style={styles.emptyContainer}>
+                {otherUser && (
+                  <>
+                    <UserAvatarWithActions
+                      user={{
+                        id: otherUser.id,
+                        username: otherUser.username,
+                        displayName: otherUser.displayName,
+                        avatar: otherUser.avatar,
+                        status: otherUser.status,
+                        bio: otherUser.bio,
+                        avatarEffectId: otherUser.avatarEffectId,
+                        bannerEffectId: otherUser.bannerEffectId,
+                        cardEffectId: otherUser.cardEffectId,
+                      }}
+                      size={72}
+                    />
+                    <ThemedText style={styles.emptyTitle}>
+                      {otherUser.displayName || otherUser.username}
+                    </ThemedText>
+                    <ThemedText style={styles.emptySubtitle}>
+                      This is the beginning of your direct message history with{' '}
+                      <ThemedText style={styles.emptyBold}>
+                        @{otherUser.username}
+                      </ThemedText>
+                      .
+                    </ThemedText>
+                  </>
+                )}
+              </View>
+            ) : null
+          }
+          contentContainerStyle={
+            messages.length === 0 ? styles.emptyList : styles.listContent
+          }
         />
-      )}
+
+        {/* Chat input or Edit input */}
+        {editingMessage ? (
+          <EditMessageInput
+            originalContent={editingMessage.content}
+            onSave={handleEditSave}
+            onCancel={() => setEditingMessage(null)}
+          />
+        ) : (
+          <ChatInput
+            onSend={handleSend}
+            placeholder={
+              otherUser
+                ? `Message @${otherUser.username}`
+                : 'Send a message...'
+            }
+            disabled={isSending}
+            replyToMessage={
+              replyingToMessage
+                ? {
+                    id: replyingToMessage.id,
+                    content: replyingToMessage.content,
+                    attachments: replyingToMessage.attachments,
+                    sender: {
+                      id: replyingToMessage.sender.id,
+                      username: replyingToMessage.sender.username,
+                      displayName: replyingToMessage.sender.displayName,
+                    },
+                    deleted: replyingToMessage.deleted,
+                  }
+                : null
+            }
+            onCancelReply={() => setReplyingToMessage(null)}
+          />
+        )}
+      </KeyboardAvoidingView>
 
       {/* Action Sheet */}
       <MessageActionSheet
@@ -486,17 +676,46 @@ export default function DMChatScreen() {
         onSelectEmoji={handleEmojiSelected}
       />
 
-      {/* Voice Call UI */}
       <VoiceCallUI
         visible={voiceCallVisible}
+        autoStart={shouldAutoStartCall}
         conversationId={conversationId || ''}
+        callType={callType}
         remoteUserName={otherUser?.displayName || otherUser?.username || 'Unknown'}
         remoteUserAvatar={otherUser?.avatar}
         remoteUserId={otherUser?.id}
-        onSendMessage={handleSendMessageInCall}
+        remoteUserStatus={otherUser?.status}
+        remoteAvatarEffectId={otherUser?.avatarEffectId}
+        remoteBannerEffectId={otherUser?.bannerEffectId}
+        remoteCardEffectId={otherUser?.cardEffectId}
         onLeave={handleLeaveCall}
-        onMinimize={handleMinimizeCall}
+        onMinimize={handleLeaveCall}
+        onAutoStartHandled={() => setShouldAutoStartCall(false)}
+        activeCall={activeCall}
+        isInCall={isInCall}
+        isRemoteSpeaking={isRemoteSpeaking}
+        isLocalSpeaking={isLocalSpeaking}
+        handleStartCall={startDmCall}
+        handleEndCall={handleEndCall}
+        handleToggleMute={handleToggleMute}
+        handleToggleDeafen={handleToggleDeafen}
+        handleToggleCamera={handleToggleCamera}
+        handleSwitchCamera={handleSwitchCamera}
       />
+
+      {/* Message Search Panel */}
+      <MessageSearchPanel
+        visible={searchPanelVisible}
+        mode="dm"
+        conversationId={conversationId || ''}
+        onClose={() => setSearchPanelVisible(false)}
+        onSelectResult={(messageId) => {
+          setSearchPanelVisible(false);
+          // Small delay để panel đóng trước khi scroll
+          setTimeout(() => scrollToMessageById(messageId), 300);
+        }}
+      />
+
     </SafeAreaView>
   );
 }
@@ -506,6 +725,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: DiscordColors.primaryBackground,
+  },
+  chatArea: {
+    flex: 1,
   },
   header: {
     flexDirection: 'row',
@@ -579,8 +801,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: Spacing.xl,
-    // In inverted list, this appears at the top
-    transform: [{ scaleY: -1 }],
   },
   emptyTitle: {
     fontSize: 20,
@@ -602,5 +822,10 @@ const styles = StyleSheet.create({
   emptyList: {
     flexGrow: 1,
     justifyContent: 'flex-end',
+  },
+  headerNameplate: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.25,
+    zIndex: -1,
   },
 });

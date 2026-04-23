@@ -1,5 +1,7 @@
 import { Client, IMessage, StompSubscription } from '@stomp/stompjs';
+import { resolveSocketUrl } from '@/api/networkConfig';
 import { getAuthToken } from './authSession';
+import { AppState, AppStateStatus } from 'react-native';
 
 // Polyfills for TextEncoder/Decoder required by STOMPjs v7
 import { TextEncoder, TextDecoder } from 'text-encoding';
@@ -11,22 +13,119 @@ if (typeof global.TextDecoder === 'undefined') {
   (global as any).TextDecoder = TextDecoder;
 }
 
-const normalizeSocketUrl = (url: string): string => {
-  const trimmed = url.trim();
-  if (trimmed.endsWith('/ws')) {
-    return `${trimmed}-native`;
-  }
-  return trimmed;
-};
+const SOCKET_URL = resolveSocketUrl();
 
-const RAW_SOCKET_URL =
-  process.env.EXPO_PUBLIC_SOCKET_URL || 'ws://10.0.2.2:8085/ws-native';
-const SOCKET_URL = normalizeSocketUrl(RAW_SOCKET_URL);
+if (__DEV__) {
+  console.log('🌐 SOCKET_URL đang kết nối:', SOCKET_URL);
+}
 
 class SocketService {
   private client: Client | null = null;
-  private subscriptions: Map<string, StompSubscription> = new Map();
+  private subscriptions: Map<
+    string,
+    { subscription: StompSubscription | null; listeners: Set<(message: any) => void> }
+  > = new Map();
   private connectPromise: Promise<void> | null = null;
+  private appState: AppStateStatus = AppState.currentState;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempt = 0;
+
+  constructor() {
+    AppState.addEventListener('change', this.handleAppStateChange);
+  }
+
+  private handleAppStateChange = (nextState: AppStateStatus) => {
+    const prevState = this.appState;
+    this.appState = nextState;
+
+    if ((prevState === 'background' || prevState === 'inactive') && nextState === 'active') {
+      this.ensureForegroundConnection();
+    }
+  };
+
+  private logSocketIssue(message: string, error?: unknown): void {
+    if (this.appState === 'active') {
+      console.warn(message, error);
+      return;
+    }
+
+    if (__DEV__) {
+      console.log('[Socket][background]', message, error ?? '');
+    }
+  }
+
+  private ensureForegroundConnection(): void {
+    const token = getAuthToken();
+    if (!token) return;
+    if (this.client?.connected || this.connectPromise) return;
+
+    void this.connect().catch((error) => {
+      this.logSocketIssue('STOMP foreground reconnect failed', error);
+    });
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
+  private scheduleReconnect(): void {
+    const token = getAuthToken();
+    if (!token || this.appState !== 'active') {
+      return;
+    }
+
+    if (this.reconnectTimer || this.connectPromise || this.client?.connected) {
+      return;
+    }
+
+    const delay = Math.min(30000, 1000 * Math.pow(2, this.reconnectAttempt));
+    this.reconnectAttempt = Math.min(this.reconnectAttempt + 1, 5);
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.connect().catch((error) => {
+        this.logSocketIssue('STOMP auto reconnect failed', error);
+        this.scheduleReconnect();
+      });
+    }, delay);
+  }
+
+  private createSubscription<T = any>(
+    destination: string,
+    listeners: Set<(message: any) => void>
+  ): StompSubscription {
+    return this.client!.subscribe(destination, (frame: IMessage) => {
+      try {
+        const parsed: T = JSON.parse(frame.body);
+        for (const listener of listeners) {
+          try {
+            listener(parsed);
+          } catch (listenerError) {
+            this.logSocketIssue('Error in socket listener callback', listenerError);
+          }
+        }
+      } catch (error) {
+        this.logSocketIssue('Error parsing socket message', error);
+      }
+    });
+  }
+
+  private resubscribeAll(): void {
+    if (!this.client?.connected) return;
+
+    this.subscriptions.forEach((entry, destination) => {
+      try {
+        entry.subscription?.unsubscribe();
+      } catch {
+        // Ignore stale subscriptions during reconnect.
+      }
+
+      entry.subscription = this.createSubscription(destination, entry.listeners);
+    });
+  }
 
   async connect(): Promise<void> {
     if (this.client?.connected) return;
@@ -38,30 +137,46 @@ class SocketService {
     }
 
     this.connectPromise = new Promise<void>((resolve, reject) => {
+      this.clearReconnectTimer();
       this.client = new Client({
         brokerURL: SOCKET_URL,
         connectHeaders: token ? { Authorization: `Bearer ${token}` } : {},
         reconnectDelay: 5000,
         forceBinaryWSFrames: true,
-        appendMissingNULLOnIncoming: true,
+        appendMissingNULLonIncoming: true,
         debug: (msg) => {
           console.log('STOMP RAW:', msg);
         },
         onConnect: () => {
           console.log('STOMP: Connected successfully');
+          this.reconnectAttempt = 0;
+          this.resubscribeAll();
+
+          if (!this.connectPromise) {
+            return;
+          }
+
           this.connectPromise = null;
           resolve();
         },
         onStompError: (frame) => {
-          console.error('STOMP [STOMP ERROR]:', frame.headers['message']);
-          console.error('STOMP [STOMP ERROR Body]:', frame.body);
+          this.logSocketIssue('STOMP [STOMP ERROR]', {
+            message: frame.headers['message'],
+            body: frame.body,
+          });
           this.connectPromise = null;
+          this.scheduleReconnect();
           reject(new Error(frame.headers['message'] || 'STOMP connection failed'));
         },
         onWebSocketError: (event) => {
-          console.error('STOMP [WS ERROR]:', event);
+          this.logSocketIssue('STOMP [WS ERROR]', event);
           this.connectPromise = null;
+          this.scheduleReconnect();
           reject(new Error('WebSocket connection error'));
+        },
+        onWebSocketClose: () => {
+          this.connectPromise = null;
+          this.scheduleReconnect();
         },
       });
 
@@ -72,37 +187,52 @@ class SocketService {
   }
 
   async subscribe<T = any>(destination: string, callback: (message: T) => void): Promise<void> {
-    await this.connect();
-
-    if (this.subscriptions.has(destination)) {
+    const existing = this.subscriptions.get(destination);
+    if (existing) {
+      existing.listeners.add(callback as (message: any) => void);
+      if (this.client?.connected && !existing.subscription) {
+        existing.subscription = this.createSubscription<T>(destination, existing.listeners);
+      }
       return;
     }
 
-    const subscription = this.client!.subscribe(destination, (frame: IMessage) => {
-      try {
-        const parsed: T = JSON.parse(frame.body);
-        callback(parsed);
-      } catch (error) {
-        console.error('Error parsing socket message:', error);
-      }
-    });
+    const listeners = new Set<(message: any) => void>();
+    listeners.add(callback as (message: any) => void);
 
-    this.subscriptions.set(destination, subscription);
+    this.subscriptions.set(destination, { subscription: null, listeners });
+
+    try {
+      await this.connect();
+      const entry = this.subscriptions.get(destination);
+      if (entry && !entry.subscription && this.client?.connected) {
+        entry.subscription = this.createSubscription<T>(destination, entry.listeners);
+      }
+    } catch (error) {
+      this.logSocketIssue('STOMP subscribe will retry in background', error);
+      this.scheduleReconnect();
+    }
   }
 
-  unsubscribe(destination: string): void {
-    const subscription = this.subscriptions.get(destination);
-    if (subscription) {
-      subscription.unsubscribe();
-      this.subscriptions.delete(destination);
+  unsubscribe(destination: string, callback?: (message: any) => void): void {
+    const entry = this.subscriptions.get(destination);
+    if (!entry) return;
+
+    if (callback) {
+      entry.listeners.delete(callback as (message: any) => void);
+      if (entry.listeners.size > 0) {
+        return;
+      }
     }
+
+    entry.subscription?.unsubscribe();
+    this.subscriptions.delete(destination);
   }
 
   async send(destination: string, body: object): Promise<boolean> {
     try {
       await this.connect();
     } catch (error) {
-      console.error('Error connecting before send:', error);
+      this.logSocketIssue('Error connecting before send', error);
       return false;
     }
 
@@ -117,7 +247,7 @@ class SocketService {
       });
       return true;
     } catch (error) {
-      console.error('Error sending socket message:', error);
+      this.logSocketIssue('Error sending socket message', error);
       return false;
     }
   }
@@ -125,6 +255,8 @@ class SocketService {
   disconnect(): void {
     this.subscriptions.forEach((subscription) => subscription.unsubscribe());
     this.subscriptions.clear();
+    this.clearReconnectTimer();
+    this.reconnectAttempt = 0;
 
     if (this.client) {
       this.client.deactivate();

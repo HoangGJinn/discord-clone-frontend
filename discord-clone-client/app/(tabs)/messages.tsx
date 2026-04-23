@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  Alert,
   View,
   FlatList,
   StyleSheet,
@@ -18,6 +19,47 @@ import { useDMStore } from '@/store/useDMStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { Conversation, getOtherParticipant } from '@/types/dm';
 import { DiscordColors, Spacing } from '@/constants/theme';
+import { isImageAttachment } from '@/utils/attachments';
+import socketService from '@/services/socketService';
+
+function buildLastMessagePreview(conversation: Conversation) {
+  const lastMessage = conversation.lastMessage;
+  if (!lastMessage) return undefined;
+
+  const content = (lastMessage.content || '').trim();
+  if (content) {
+    return content;
+  }
+
+  const attachments = lastMessage.attachments || [];
+  if (!attachments.length) {
+    return undefined;
+  }
+
+  const hasGiftAttachment = attachments.some((attachment) => {
+    const filename = (attachment.filename || '').toLowerCase();
+    const contentType = (attachment.contentType || '').toLowerCase();
+    const url = (attachment.url || '').toLowerCase();
+    return (
+      filename.includes('gift') ||
+      contentType.includes('gift') ||
+      url.includes('gift')
+    );
+  });
+
+  if (hasGiftAttachment) {
+    return 'Sent a gift';
+  }
+
+  const hasImage = attachments.some((attachment) => isImageAttachment(attachment));
+  if (hasImage && attachments.length === 1) {
+    return 'Photo';
+  }
+  if (hasImage) {
+    return `${attachments.length} attachments`;
+  }
+  return attachments.length === 1 ? 'File' : `${attachments.length} files`;
+}
 
 // ─── Screen (SRP: Composes components and connects to store) ─
 export default function MessagesScreen() {
@@ -29,12 +71,35 @@ export default function MessagesScreen() {
     conversations,
     isLoadingConversations,
     fetchConversations,
+    markConversationAsRead,
+    markConversationAsUnread,
   } = useDMStore();
 
   // ── Load conversations on mount ────────────────────────
   useEffect(() => {
     fetchConversations();
   }, []);
+
+  useEffect(() => {
+    if (!conversations.length) return;
+
+    const subscriptions: Array<{ destination: string; listener: (message: any) => void }> = [];
+
+    conversations.forEach((conversation) => {
+      const destination = `/topic/dm/${conversation.id}`;
+      const listener = (message: any) => {
+        useDMStore.getState().applyRealtimeQueueEvent(message);
+      };
+      subscriptions.push({ destination, listener });
+      void socketService.subscribe(destination, listener);
+    });
+
+    return () => {
+      subscriptions.forEach(({ destination, listener }) => {
+        socketService.unsubscribe(destination, listener);
+      });
+    };
+  }, [conversations]);
 
   // ── Filter conversations by search query ───────────────
   const filteredConversations = conversations.filter((conv) => {
@@ -73,7 +138,7 @@ export default function MessagesScreen() {
         return (
           <ConversationItem
             participant={other}
-            lastMessageContent={item.lastMessage?.content}
+            lastMessageContent={buildLastMessagePreview(item)}
             lastMessageSender={
               item.lastMessage
                 ? String(item.lastMessage.sender?.id) === String(user.id)
@@ -84,6 +149,19 @@ export default function MessagesScreen() {
             lastMessageTime={item.lastMessage?.createdAt || item.updatedAt}
             unreadCount={item.unreadCount}
             onPress={() => handleOpenConversation(item.id)}
+            onLongPress={() => {
+              const hasUnread = (item.unreadCount ?? 0) > 0;
+              Alert.alert(
+                'Conversation options',
+                'Update read status for this conversation.',
+                [
+                  hasUnread
+                    ? { text: 'Mark as read', onPress: () => { void markConversationAsRead(item.id); } }
+                    : { text: 'Mark as unread', onPress: () => { void markConversationAsUnread(item.id); } },
+                  { text: 'Cancel', style: 'cancel' },
+                ],
+              );
+            }}
             index={index}
           />
         );
@@ -92,7 +170,7 @@ export default function MessagesScreen() {
         return null;
       }
     },
-    [user, handleOpenConversation],
+    [user, handleOpenConversation, markConversationAsRead, markConversationAsUnread],
   );
 
   const keyExtractor = useCallback(

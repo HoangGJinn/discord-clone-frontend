@@ -39,6 +39,12 @@ export interface VerifyAccountRequest {
   otp: string;
 }
 
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
+  confirmNewPassword: string;
+}
+
 export interface ResendOtpRequest {
   email: string;
   type: "VERIFY_ACCOUNT" | "RESET_PASSWORD";
@@ -56,6 +62,9 @@ export interface UserProfileResponse {
   birthDate?: string | null;
   country?: string | null;
   pronouns?: string | null;
+  avatarEffectId?: string | null;
+  bannerEffectId?: string | null;
+  cardEffectId?: string | null;
 }
 
 export const authService = {
@@ -79,6 +88,11 @@ export const authService = {
     return response.data;
   },
 
+  changePassword: async (data: ChangePasswordRequest): Promise<AuthMessageResponse> => {
+    const response = await apiClient.put<AuthMessageResponse>("/users/me/password", data);
+    return response.data;
+  },
+
   verifyAccount: async (data: VerifyAccountRequest): Promise<AuthMessageResponse> => {
     const response = await apiClient.post<AuthMessageResponse>("/auth/verify-account", data);
     return response.data;
@@ -86,6 +100,11 @@ export const authService = {
 
   resendOtp: async (data: ResendOtpRequest): Promise<AuthMessageResponse> => {
     const response = await apiClient.post<AuthMessageResponse>("/auth/resend-otp", data);
+    return response.data;
+  },
+
+  googleLogin: async (idToken: string): Promise<LoginResponse> => {
+    const response = await apiClient.post<LoginResponse>("/auth/google-login", { idToken });
     return response.data;
   },
 

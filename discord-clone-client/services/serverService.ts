@@ -27,6 +27,11 @@ export interface ServerMemberResponse {
   status?: 'ONLINE' | 'IDLE' | 'DND' | 'OFFLINE' | null;
   role: ServerMemberRole;
   joinedAt: string;
+  avatarEffectId?: string | null;
+  bannerEffectId?: string | null;
+  cardEffectId?: string | null;
+  isBanned?: boolean | null;
+  timeoutUntil?: string | null;
 }
 
 export interface CategoryResponse {
@@ -48,6 +53,7 @@ export interface ChannelResponse {
   categoryId: number | null;
   bitrate?: number;
   userLimit?: number;
+  unreadCount?: number;
   createdAt?: string;
 }
 
@@ -66,6 +72,11 @@ export interface MemberSearchResult {
   role: ServerMemberRole;
   serverId: number;
   serverName: string;
+  avatarEffectId?: string | null;
+  bannerEffectId?: string | null;
+  cardEffectId?: string | null;
+  avatarUrl?: string | null;
+  status?: string | null;
 }
 
 export interface CreateServerInput {
@@ -173,6 +184,14 @@ export const searchMembersInServer = async (
 export const getChannelById = async (channelId: number): Promise<ChannelResponse> => {
   const response = await apiClient.get<ChannelResponse>(`/channels/${channelId}`);
   return response.data;
+};
+
+export const markChannelAsRead = async (channelId: number): Promise<void> => {
+  await apiClient.post(`/channels/${channelId}/read`);
+};
+
+export const markChannelAsUnread = async (channelId: number): Promise<void> => {
+  await apiClient.post(`/channels/${channelId}/unread`);
 };
 
 export const createCategory = async (
@@ -305,4 +324,43 @@ export const regenerateInviteCode = async (
   );
   return response.data.inviteCode;
 };
+
+export const transferOwnership = async (
+  serverId: number,
+  newOwnerId: number,
+): Promise<void> => {
+  await apiClient.post(`/servers/${serverId}/transfer-ownership`, null, {
+    params: { newOwnerId },
+  });
+};
+
+export const kickMember = async (serverId: number, targetUserId: number): Promise<void> => {
+  await apiClient.delete(`/servers/${serverId}/members/${targetUserId}/kick`);
+};
+
+export const banMember = async (serverId: number, targetUserId: number): Promise<void> => {
+  await apiClient.post(`/servers/${serverId}/members/${targetUserId}/ban`);
+};
+
+export const timeoutMember = async (serverId: number, targetUserId: number, minutes: number): Promise<void> => {
+  await apiClient.post(`/servers/${serverId}/members/${targetUserId}/timeout`, null, {
+    params: { minutes },
+  });
+};
+
+export const removeTimeout = async (serverId: number, targetUserId: number): Promise<void> => {
+  await apiClient.post(`/servers/${serverId}/members/${targetUserId}/remove-timeout`);
+};
+
+export const updateMemberRole = async (
+  serverId: number,
+  targetUserId: number,
+  role: ServerMemberRole,
+): Promise<void> => {
+  await apiClient.put(`/servers/${serverId}/members/${targetUserId}/role`, null, {
+    params: { role },
+  });
+};
+
+
 

@@ -6,10 +6,16 @@ import 'react-native-reanimated';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 import { useAuthStore } from '@/store/useAuthStore';
+import { useFriendStore } from '@/store/useFriendStore';
+import { useDMStore } from '@/store/useDMStore';
+import { useEffectStore } from '@/store/useEffectStore';
 import { useEffect } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { DiscordColors } from '@/constants/theme';
 import socketService from '@/services/socketService';
+import { DirectMessage } from '@/types/dm';
+import { registerForPushNotificationsAsync, sendFcmTokenToBackend } from '@/services/notificationService';
+import * as Notifications from 'expo-notifications';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -19,11 +25,16 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const isLoading = useAuthStore((state) => state.isLoading);
+  const user = useAuthStore((state) => state.user);
   const segments = useSegments();
   const router = useRouter();
+  const updateFriendStatus = useFriendStore((state) => state.updateFriendStatus);
+  const applyRealtimeQueueEvent = useDMStore((state) => state.applyRealtimeQueueEvent);
+  const fetchConversations = useDMStore((state) => state.fetchConversations);
 
   useEffect(() => {
     void useAuthStore.getState().initialize();
+    void useEffectStore.getState().fetchEffects();
   }, []);
 
   useEffect(() => {
@@ -44,9 +55,148 @@ export default function RootLayout() {
   // ── WebSocket Lifecycle ──────────────────────────
   useEffect(() => {
     if (isAuthenticated && !isLoading) {
-      socketService.connect();
+      void socketService.connect().catch(() => undefined);
     }
   }, [isAuthenticated, isLoading]);
+
+  // ── Push Notification Registration ────────────────
+  useEffect(() => {
+    if (isAuthenticated && !isLoading) {
+      const setupNotifications = async () => {
+        // Đăng ký Action Buttons cho thông báo cuộc gọi
+        await Notifications.setNotificationCategoryAsync('call_invite_category', [
+          {
+            identifier: 'ACCEPT_CALL',
+            buttonTitle: 'Nghe',
+            options: { opensAppToForeground: true },
+          },
+          {
+            identifier: 'DECLINE_CALL',
+            buttonTitle: 'Từ chối',
+            options: { isDestructive: true, opensAppToForeground: false },
+          },
+        ]);
+
+        const token = await registerForPushNotificationsAsync();
+        if (token) {
+          await sendFcmTokenToBackend(token);
+        }
+      };
+      void setupNotifications();
+    }
+  }, [isAuthenticated, isLoading]);
+
+  // ── Push Notification Interaction (Nhấn vào thông báo) ────────────────
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const subscription = Notifications.addNotificationResponseReceivedListener(response => {
+      const data = response.notification.request.content.data;
+      const actionIdentifier = response.actionIdentifier;
+      
+      // Nếu người dùng bấm "Từ chối" cuộc gọi
+      if (actionIdentifier === 'DECLINE_CALL') {
+        // Có thể gọi API hủy cuộc gọi ở đây nếu cần
+        console.log('User declined the call');
+        return;
+      }
+
+      // Xử lý điều hướng dựa trên data gửi từ Backend (đã config trong FcmService.java)
+      if (data?.type === 'dm' && data?.conversationId) {
+        router.push(`/dm/${data.conversationId}`);
+      } else if (data?.type === 'server_message' && data?.channelId) {
+        router.push(`/channel/${data.channelId}`);
+      } else if (data?.type === 'friend_request') {
+        // Chuyển hướng đến màn hình Bạn bè (Friends Tab)
+        router.push('/(tabs)/friends'); 
+      } else if (data?.type === 'call_invite' && data?.conversationId) {
+        // Nếu người dùng bấm thẳng vào nút "Nghe" (ACCEPT_CALL) thì tự động nhận cuộc gọi
+        if (actionIdentifier === 'ACCEPT_CALL') {
+          router.push(`/dm/${data.conversationId}?autoAccept=true`);
+        } else {
+          // Chỉ bấm vào banner chung chung thì mở phòng chat
+          router.push(`/dm/${data.conversationId}?incomingCall=true`);
+        }
+      }
+    });
+
+    return () => subscription.remove();
+  }, [isAuthenticated, router]);
+
+  // ── Presence Subscription ──────────────────────────
+  useEffect(() => {
+    if (!isAuthenticated || isLoading) return;
+
+    const subscribeToPresence = async () => {
+      try {
+        interface PresenceMessage {
+          type: string;
+          userId: number;
+          status: string;
+        }
+
+        await socketService.subscribe<PresenceMessage>('/topic/presence', (message) => {
+          if (message.type === 'STATUS_UPDATE' && message.userId && message.status) {
+            updateFriendStatus(message.userId, message.status);
+          }
+        });
+      } catch (error) {
+        console.warn('Presence subscription warning:', error);
+      }
+    };
+
+    void subscribeToPresence();
+
+    return () => {
+      socketService.unsubscribe('/topic/presence');
+    };
+  }, [isAuthenticated, isLoading, updateFriendStatus]);
+
+  // ── Global DM Queue Subscription (updates DM list in any screen) ──────────────
+  useEffect(() => {
+    if (!isAuthenticated || isLoading) return;
+
+    const destination = '/user/queue/dm';
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+    const onDmQueueMessage = (message: DirectMessage) => {
+      try {
+        const applied = applyRealtimeQueueEvent(message as DirectMessage);
+        if (!applied) {
+          void fetchConversations();
+          return;
+        }
+
+        // Safety net for partial payloads from queue events.
+        if (fallbackTimer) {
+          clearTimeout(fallbackTimer);
+        }
+        fallbackTimer = setTimeout(() => {
+          void fetchConversations();
+          fallbackTimer = null;
+        }, 1200);
+      } catch (err) {
+        console.warn('DM queue message handling warning:', err);
+        void fetchConversations();
+      }
+    };
+
+    const subscribeToDmQueue = async () => {
+      try {
+        await socketService.subscribe(destination, onDmQueueMessage);
+      } catch (error) {
+        console.warn('DM queue subscription warning:', error);
+      }
+    };
+
+    void subscribeToDmQueue();
+
+    return () => {
+      socketService.unsubscribe(destination, onDmQueueMessage);
+      if (fallbackTimer) {
+        clearTimeout(fallbackTimer);
+      }
+    };
+  }, [isAuthenticated, isLoading, applyRealtimeQueueEvent, fetchConversations]);
 
   if (isLoading) {
     return (
@@ -75,6 +225,10 @@ export default function RootLayout() {
         <Stack.Screen name="channel/[channelId]" options={{ headerShown: false }} />
         <Stack.Screen name="voice/[channelId]" options={{ headerShown: false }} />
         <Stack.Screen name="server/[serverId]/members" options={{ headerShown: false }} />
+        <Stack.Screen name="change-password" options={{ headerShown: false }} />
+        <Stack.Screen name="nitro" options={{ headerShown: false }} />
+        <Stack.Screen name="profile/edit" options={{ headerShown: false }} />
+        <Stack.Screen name="friends/add" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
       <StatusBar style="auto" />

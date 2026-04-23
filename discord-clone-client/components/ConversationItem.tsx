@@ -1,7 +1,8 @@
 import React, { memo } from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { Avatar } from './Avatar';
+import { UserAvatarWithActions } from './UserAvatarWithActions';
+import { UserRowNameplate } from './UserRowNameplate';
 import { ThemedText } from './themed-text';
 import { DiscordColors, Spacing } from '@/constants/theme';
 import { formatRelativeTime } from '@/utils/formatTime';
@@ -21,6 +22,8 @@ interface ConversationItemProps {
   unreadCount?: number;
   /** Called when the conversation is pressed */
   onPress: () => void;
+  /** Called when the conversation is long pressed */
+  onLongPress?: () => void;
   /** Index in the list, used for staggered animation delay */
   index?: number;
 }
@@ -33,6 +36,7 @@ function ConversationItemInner({
   lastMessageTime,
   unreadCount = 0,
   onPress,
+  onLongPress,
   index = 0,
 }: ConversationItemProps) {
   const hasUnread = unreadCount > 0;
@@ -40,63 +44,65 @@ function ConversationItemInner({
   return (
     <Animated.View entering={FadeInDown.delay(index * 40).springify()}>
       <TouchableOpacity
-        style={styles.container}
+        style={styles.containerWrapper}
         onPress={onPress}
+        onLongPress={onLongPress}
+        delayLongPress={260}
         activeOpacity={0.6}
       >
-        {/* Avatar with online status */}
-        <Avatar
-          name={participant.displayName || participant.username}
-          uri={participant.avatar}
-          size={48}
-          status={
-            (participant.status?.toUpperCase() as
-              | 'ONLINE'
-              | 'IDLE'
-              | 'DND'
-              | 'OFFLINE') || 'OFFLINE'
-          }
-        />
+        <UserRowNameplate cardEffectId={participant.cardEffectId} style={styles.container}>
+          {/* Avatar with online status */}
+          <UserAvatarWithActions
+            user={{
+              id: participant.id,
+              username: participant.username,
+              displayName: participant.displayName,
+              avatar: participant.avatar,
+              status: participant.status,
+              bio: participant.bio,
+              avatarEffectId: participant.avatarEffectId,
+              bannerEffectId: participant.bannerEffectId,
+              cardEffectId: participant.cardEffectId,
+            }}
+            size={48}
+          />
 
-        {/* Conversation info */}
-        <View style={styles.content}>
-          <View style={styles.topRow}>
-            <ThemedText
-              style={[styles.username, hasUnread && styles.unreadText]}
-              numberOfLines={1}
-            >
-              {participant.displayName || participant.username}
-            </ThemedText>
-            {lastMessageTime && (
+          {/* Conversation info */}
+          <View style={styles.content}>
+            <View style={styles.topRow}>
               <ThemedText
-                style={[styles.time, hasUnread && styles.unreadTime]}
+                style={[styles.username, hasUnread && styles.unreadText]}
+                numberOfLines={1}
               >
-                {formatRelativeTime(lastMessageTime)}
+                {participant.displayName || participant.username}
               </ThemedText>
-            )}
-          </View>
-
-          <View style={styles.bottomRow}>
-            <ThemedText
-              style={[styles.preview, hasUnread && styles.unreadText]}
-              numberOfLines={1}
-            >
-              {lastMessageContent
-                ? lastMessageSender
-                  ? `${lastMessageSender}: ${lastMessageContent}`
-                  : lastMessageContent
-                : 'Start a conversation'}
-            </ThemedText>
-
-            {hasUnread && (
-              <View style={styles.badge}>
-                <ThemedText style={styles.badgeText}>
-                  {unreadCount > 99 ? '99+' : unreadCount}
+              {lastMessageTime && (
+                <ThemedText
+                  style={[styles.time, hasUnread && styles.unreadTime]}
+                >
+                  {formatRelativeTime(lastMessageTime)}
                 </ThemedText>
-              </View>
-            )}
+              )}
+            </View>
+
+            <View style={styles.bottomRow}>
+              <ThemedText
+                style={[styles.preview, hasUnread && styles.unreadText]}
+                numberOfLines={1}
+              >
+                {lastMessageContent
+                  ? lastMessageSender
+                    ? `${lastMessageSender}: ${lastMessageContent}`
+                    : lastMessageContent
+                  : 'Start a conversation'}
+              </ThemedText>
+
+              {hasUnread && (
+                <View style={styles.unreadDot} />
+              )}
+            </View>
           </View>
-        </View>
+        </UserRowNameplate>
       </TouchableOpacity>
     </Animated.View>
   );
@@ -107,6 +113,12 @@ export const ConversationItem = memo(ConversationItemInner);
 
 // ─── Styles ──────────────────────────────────────────────────
 const styles = StyleSheet.create({
+  containerWrapper: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginHorizontal: Spacing.sm,
+    marginVertical: 2,
+  },
   container: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -152,18 +164,11 @@ const styles = StyleSheet.create({
   unreadTime: {
     color: DiscordColors.textPrimary,
   },
-  badge: {
+  unreadDot: {
     backgroundColor: DiscordColors.red,
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 6,
-  },
-  badgeText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '800',
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 4,
   },
 });

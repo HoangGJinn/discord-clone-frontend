@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "discordcl-rn-frontend",
-    "slug": "discordcl-rn-frontend",
+    "slug": "d",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -19,7 +19,16 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "usesCleartextTraffic": true,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.BLUETOOTH_CONNECT"
+      ],
+      "package": "com.discordclrnfrontend",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "static",
@@ -38,11 +47,19 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "d785cd4e-1786-4f38-9cd6-faeafd5bb91f"
+      }
+    },
+    "owner": "hoanggiap1597"
   }
 }

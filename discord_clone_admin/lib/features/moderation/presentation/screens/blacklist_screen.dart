@@ -18,40 +18,40 @@ class _BlacklistScreenState extends State<BlacklistScreen> {
   void initState() {
     super.initState();
     _controller = BlacklistController();
+    _controller.addListener(_onControllerUpdate);
     _controller.loadBlacklist();
   }
 
   @override
   void dispose() {
+    _controller.removeListener(_onControllerUpdate);
     _keywordController.dispose();
     super.dispose();
+  }
+
+  void _onControllerUpdate() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: AppColors.background,
-        elevation: 0,
-        title: const Text('Blacklist từ khóa', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700)),
-        centerTitle: false,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add_rounded, color: AppColors.blurple),
-            onPressed: _showAddDialog,
-            tooltip: 'Thêm từ khóa',
-          ),
-        ],
-      ),
       body: SafeArea(
         child: Column(
           children: [
-            const Padding(
-              padding: EdgeInsets.all(16),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
               child: SectionHeader(
-                title: 'Quản lý từ khóa bị chặn',
+                title: 'Blacklist từ khóa',
                 subtitle: 'Các từ khóa trong danh sách này sẽ tự động bị chặn',
+                action: IconButton(
+                  icon: const Icon(Icons.add_rounded, color: AppColors.blurple, size: 28),
+                  onPressed: _showAddDialog,
+                  tooltip: 'Thêm từ khóa',
+                ),
               ),
             ),
             Expanded(child: _buildBody()),
