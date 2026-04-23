@@ -27,6 +27,7 @@ import {
   banMember,
   timeoutMember,
   removeTimeout,
+  updateMemberRole,
   searchMembersInServer,
 } from '@/services/serverService';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -72,7 +73,13 @@ export default function ServerMembersScreen() {
     return members.find((m) => m.userId === Number(user.id))?.role ?? null;
   }, [members, user?.id]);
 
+  // Action Modal state
+  const [actionModalVisible, setActionModalVisible] = useState(false);
+  const [actionTarget, setActionTarget] = useState<ServerMemberResponse | null>(null);
+
   const isOwner = myRole === 'OWNER';
+  const isAdmin = myRole === 'ADMIN';
+  const canManage = isOwner || isAdmin;
 
   const loadMembers = useCallback(async () => {
     if (!Number.isFinite(parsedServerId) || parsedServerId <= 0) {
@@ -218,28 +225,44 @@ export default function ServerMembersScreen() {
       ]
     );
 
+  const doSetAdmin = async (member: ServerMemberResponse) => {
+    setIsActionLoading(true);
+    try {
+      await updateMemberRole(parsedServerId, member.userId, 'ADMIN');
+      Alert.alert('Success', `${member.displayName || member.userName} is now an Admin.`);
+      void loadMembers();
+    } catch (e: any) {
+      Alert.alert('Error', e?.response?.data?.message || e?.message || 'Failed.');
+    } finally { setIsActionLoading(false); }
+  };
+
+  const doRemoveAdmin = async (member: ServerMemberResponse) => {
+    setIsActionLoading(true);
+    try {
+      await updateMemberRole(parsedServerId, member.userId, 'MEMBER');
+      Alert.alert('Success', `${member.displayName || member.userName} is now a Member.`);
+      void loadMembers();
+    } catch (e: any) {
+      Alert.alert('Error', e?.response?.data?.message || e?.message || 'Failed.');
+    } finally { setIsActionLoading(false); }
+  };
+
   // ─── Long press handler ────────────────────────────────────────────────────
 
   const onLongPress = (member: ServerMemberResponse) => {
     const isSelf = Number(user?.id) === member.userId;
-    // Chỉ OWNER mới có quyền quản lý thành viên
-    if (isSelf || !isOwner || member.role === 'OWNER') return;
+    // Current user must be Owner or Admin
+    if (!canManage || isSelf) return;
 
-    const timedOut = isTimedOut(member);
-    const btns: Array<{ text: string; style?: 'default' | 'cancel' | 'destructive'; onPress: () => void }> = [
-      { text: '👢 Kick', style: 'destructive', onPress: () => doKick(member) },
-      { text: '🔨 Ban', style: 'destructive', onPress: () => doBan(member) },
-      timedOut
-        ? { text: '✅ Remove Timeout', onPress: () => doRemoveTimeout(member) }
-        : { text: '⏱ Timeout', onPress: () => openTimeoutDialog(member) },
-      { text: '👑 Transfer Ownership', style: 'destructive', onPress: () => doTransferOwnership(member) },
-    ];
+    // Admin cannot manage Owner or other Admins (optional: can manage other admins?)
+    // Usually admin can only manage members.
+    if (isAdmin && (member.role === 'OWNER' || member.role === 'ADMIN')) return;
 
-    Alert.alert(
-      member.displayName || member.userName,
-      timedOut ? '⏱ Currently timed out' : 'Member actions',
-      [...btns, { text: 'Cancel', style: 'cancel', onPress: () => {} }]
-    );
+    // Owner can manage everyone except self (already checked)
+    if (isOwner && member.role === 'OWNER') return;
+
+    setActionTarget(member);
+    setActionModalVisible(true);
   };
 
   // ─── Render ───────────────────────────────────────────────────────────────
@@ -347,6 +370,154 @@ export default function ServerMembersScreen() {
         )}
       </View>
 
+      {/* ── Member Action Modal ─────────────────────────────────────────────── */}
+      <Modal visible={actionModalVisible} transparent animationType="slide" onRequestClose={() => setActionModalVisible(false)}>
+        <View style={s.overlay}>
+          <TouchableWithoutFeedback onPress={() => setActionModalVisible(false)}>
+            <View style={StyleSheet.absoluteFillObject} />
+          </TouchableWithoutFeedback>
+
+          <View style={s.actionCard}>
+            <View style={s.indicator} />
+            <View style={s.actionHeader}>
+              {actionTarget && (
+                <UserAvatarWithActions
+                  user={{
+                    id: actionTarget.userId,
+                    username: actionTarget.userName,
+                    displayName: actionTarget.displayName,
+                    avatar: actionTarget.avatarUrl || undefined,
+                  }}
+                  size={54}
+                />
+              )}
+              <View style={{ flex: 1 }}>
+                <ThemedText style={s.actionTitle}>
+                  {actionTarget?.displayName || actionTarget?.userName}
+                </ThemedText>
+                <ThemedText style={s.actionSubtitle}>
+                  {actionTarget && isTimedOut(actionTarget) ? '⏱ Currently timed out' : 'Select an action'}
+                </ThemedText>
+              </View>
+            </View>
+
+            <View style={s.actionList}>
+              {/* Management Actions - For both Owner and Admin */}
+              <Pressable
+                style={({ pressed }) => [s.actionItem, pressed && s.actionItemPressed]}
+                onPress={() => {
+                  setActionModalVisible(false);
+                  if (actionTarget) doKick(actionTarget);
+                }}
+              >
+                <View style={[s.actionIcon, { backgroundColor: 'rgba(242,63,67,0.1)' }]}>
+                  <ThemedText style={{ fontSize: 18 }}>👢</ThemedText>
+                </View>
+                <ThemedText style={[s.actionItemText, { color: DiscordColors.red }]}>Kick Member</ThemedText>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [s.actionItem, pressed && s.actionItemPressed]}
+                onPress={() => {
+                  setActionModalVisible(false);
+                  if (actionTarget) doBan(actionTarget);
+                }}
+              >
+                <View style={[s.actionIcon, { backgroundColor: 'rgba(242,63,67,0.1)' }]}>
+                  <ThemedText style={{ fontSize: 18 }}>🔨</ThemedText>
+                </View>
+                <ThemedText style={[s.actionItemText, { color: DiscordColors.red }]}>Ban Member</ThemedText>
+              </Pressable>
+
+              {actionTarget && (
+                isTimedOut(actionTarget) ? (
+                  <Pressable
+                    style={({ pressed }) => [s.actionItem, pressed && s.actionItemPressed]}
+                    onPress={() => {
+                      setActionModalVisible(false);
+                      doRemoveTimeout(actionTarget);
+                    }}
+                  >
+                    <View style={[s.actionIcon, { backgroundColor: 'rgba(35,165,90,0.1)' }]}>
+                      <Ionicons name="checkmark-circle" size={20} color={DiscordColors.green} />
+                    </View>
+                    <ThemedText style={[s.actionItemText, { color: DiscordColors.green }]}>Remove Timeout</ThemedText>
+                  </Pressable>
+                ) : (
+                  <Pressable
+                    style={({ pressed }) => [s.actionItem, pressed && s.actionItemPressed]}
+                    onPress={() => {
+                      setActionModalVisible(false);
+                      openTimeoutDialog(actionTarget);
+                    }}
+                  >
+                    <View style={[s.actionIcon, { backgroundColor: 'rgba(250,166,26,0.1)' }]}>
+                      <Ionicons name="timer-outline" size={20} color="#faa61a" />
+                    </View>
+                    <ThemedText style={s.actionItemText}>Timeout Member</ThemedText>
+                  </Pressable>
+                )
+              )}
+
+              {/* Role Management Actions - Only for Owner */}
+              {isOwner && actionTarget && (
+                <>
+                  <View style={s.divider} />
+
+                  {actionTarget.role === 'MEMBER' ? (
+                    <Pressable
+                      style={({ pressed }) => [s.actionItem, pressed && s.actionItemPressed]}
+                      onPress={() => {
+                        setActionModalVisible(false);
+                        doSetAdmin(actionTarget);
+                      }}
+                    >
+                      <View style={[s.actionIcon, { backgroundColor: 'rgba(88,101,242,0.1)' }]}>
+                        <Ionicons name="shield-checkmark" size={20} color={DiscordColors.blurple} />
+                      </View>
+                      <ThemedText style={s.actionItemText}>Promote to Admin</ThemedText>
+                    </Pressable>
+                  ) : actionTarget.role === 'ADMIN' ? (
+                    <Pressable
+                      style={({ pressed }) => [s.actionItem, pressed && s.actionItemPressed]}
+                      onPress={() => {
+                        setActionModalVisible(false);
+                        doRemoveAdmin(actionTarget);
+                      }}
+                    >
+                      <View style={[s.actionIcon, { backgroundColor: 'rgba(242,63,67,0.1)' }]}>
+                        <Ionicons name="shield-outline" size={20} color={DiscordColors.red} />
+                      </View>
+                      <ThemedText style={[s.actionItemText, { color: DiscordColors.red }]}>Demote from Admin</ThemedText>
+                    </Pressable>
+                  ) : null}
+
+                  <Pressable
+                    style={({ pressed }) => [s.actionItem, pressed && s.actionItemPressed]}
+                    onPress={() => {
+                      setActionModalVisible(false);
+                      doTransferOwnership(actionTarget);
+                    }}
+                  >
+                    <View style={[s.actionIcon, { backgroundColor: 'rgba(250,166,26,0.1)' }]}>
+                      <ThemedText style={{ fontSize: 18 }}>👑</ThemedText>
+                    </View>
+                    <ThemedText style={s.actionItemText}>Transfer Ownership</ThemedText>
+                  </Pressable>
+                </>
+              )}
+            </View>
+
+            <Pressable
+              style={({ pressed }) => [s.cancelActionBtn, pressed && { opacity: 0.7 }]}
+              onPress={() => setActionModalVisible(false)}
+            >
+              <ThemedText style={s.cancelActionText}>Cancel</ThemedText>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       {/* ── Timeout Dialog ─────────────────────────────────────────────────── */}
       <Modal visible={timeoutVisible} transparent animationType="fade" onRequestClose={() => setTimeoutVisible(false)}>
         <View style={s.overlay}>
@@ -437,7 +608,20 @@ const s = StyleSheet.create({
   emptyTitle: { color: DiscordColors.textSecondary, fontSize: 15, fontWeight: '700' },
   // ── Timeout Dialog ──
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.72)', justifyContent: 'center', alignItems: 'center', padding: Spacing.xl },
-  card: { backgroundColor: DiscordColors.secondaryBackground, borderRadius: 18, padding: Spacing.xl, width: '100%', gap: Spacing.md, borderWidth: 1, borderColor: DiscordColors.divider },
+  card: {
+    backgroundColor: DiscordColors.secondaryBackground,
+    borderRadius: 24,
+    padding: Spacing.xl,
+    width: '100%',
+    gap: Spacing.lg,
+    borderWidth: 1,
+    borderColor: DiscordColors.divider,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
   cardHeader: { flexDirection: 'row', alignItems: 'center' },
   cardTitle: { flex: 1, color: DiscordColors.textPrimary, fontSize: 18, fontWeight: '800', textAlign: 'center' },
   closeBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: DiscordColors.tertiaryBackground, alignItems: 'center', justifyContent: 'center' },
@@ -452,4 +636,86 @@ const s = StyleSheet.create({
   cancelText: { color: DiscordColors.textSecondary, fontSize: 15, fontWeight: '700' },
   confirmBtn: { flex: 1, backgroundColor: DiscordColors.blurple, borderRadius: 10, paddingVertical: Spacing.md, alignItems: 'center' },
   confirmText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+
+  // ── Member Action Modal ──
+  actionCard: {
+    backgroundColor: DiscordColors.secondaryBackground,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: Spacing.lg,
+    width: '100%',
+    position: 'absolute',
+    bottom: 0,
+    gap: Spacing.md,
+    borderTopWidth: 1,
+    borderColor: DiscordColors.divider,
+    paddingBottom: 40, // For home indicator
+  },
+  indicator: {
+    width: 40,
+    height: 4,
+    backgroundColor: DiscordColors.tertiaryBackground,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: Spacing.xs,
+  },
+  actionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    marginBottom: Spacing.sm,
+  },
+  actionTitle: {
+    color: DiscordColors.textPrimary,
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  actionSubtitle: {
+    color: DiscordColors.textMuted,
+    fontSize: 14,
+  },
+  actionList: {
+    gap: 4,
+  },
+  actionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    gap: Spacing.md,
+  },
+  actionItemPressed: {
+    backgroundColor: DiscordColors.tertiaryBackground,
+  },
+  actionIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionItemText: {
+    color: DiscordColors.textPrimary,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: DiscordColors.divider,
+    marginVertical: 4,
+    marginHorizontal: 12,
+  },
+  cancelActionBtn: {
+    backgroundColor: DiscordColors.tertiaryBackground,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: Spacing.sm,
+  },
+  cancelActionText: {
+    color: DiscordColors.textPrimary,
+    fontSize: 16,
+    fontWeight: '700',
+  },
 });

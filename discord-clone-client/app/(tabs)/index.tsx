@@ -416,12 +416,19 @@ export default function HomeScreen() {
     if (!selectedServerForOptions) return;
 
     Alert.alert(
-      'Delete server',
-      `Delete "${selectedServerForOptions.name}"? This action cannot be undone.`,
+      'Delete Server',
+      `Are you sure you want to delete "${selectedServerForOptions.name}"? This action is permanent and cannot be undone.\n\nTip: You can transfer ownership to someone else and leave the server instead if you just want to quit.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete',
+          text: 'Transfer & Leave',
+          onPress: () => {
+            setShowServerOptionsModal(false);
+            router.push(`/server/${selectedServerForOptions.id}/members` as any);
+          },
+        },
+        {
+          text: 'Delete Server',
           style: 'destructive',
           onPress: async () => {
             setIsServerActionLoading(true);
@@ -438,7 +445,7 @@ export default function HomeScreen() {
         },
       ],
     );
-  }, [selectedServerForOptions]);
+  }, [router, selectedServerForOptions]);
 
   const handlePickServerAvatar = useCallback(async () => {
     if (!selectedServerForOptions || isUpdatingServerIcon) {

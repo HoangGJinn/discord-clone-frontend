@@ -352,5 +352,15 @@ export const removeTimeout = async (serverId: number, targetUserId: number): Pro
   await apiClient.post(`/servers/${serverId}/members/${targetUserId}/remove-timeout`);
 };
 
+export const updateMemberRole = async (
+  serverId: number,
+  targetUserId: number,
+  role: ServerMemberRole,
+): Promise<void> => {
+  await apiClient.put(`/servers/${serverId}/members/${targetUserId}/role`, null, {
+    params: { role },
+  });
+};
+
 
 

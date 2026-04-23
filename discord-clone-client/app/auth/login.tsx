@@ -4,7 +4,13 @@ import { DiscordColors, Spacing } from "@/constants/theme";
 import { useAuthStore } from "@/store/useAuthStore";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import * as Google from "expo-auth-session/providers/google";
+import * as WebBrowser from "expo-web-browser";
+import * as AuthSession from "expo-auth-session";
+import { makeRedirectUri } from "expo-auth-session";
 import React, { useEffect, useState } from "react";
+
+WebBrowser.maybeCompleteAuthSession();
 import {
   Alert,
   KeyboardAvoidingView,
@@ -19,7 +25,15 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function LoginScreen() {
   const loginWithCredentials = useAuthStore((state) => state.loginWithCredentials);
+  const loginWithGoogle = useAuthStore((state) => state.loginWithGoogle);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    clientId: "443048255847-fpd4dgb1qp35ru0lhn59tvdem8jkobv8.apps.googleusercontent.com",
+    redirectUri: makeRedirectUri({
+      useProxy: true,
+    }),
+  });
 
   const [userName, setUserName] = useState("");
   const [password, setPassword] = useState("");
@@ -31,6 +45,30 @@ export default function LoginScreen() {
       router.replace("/(tabs)");
     }
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    console.log("--- Google Auth Response ---");
+    console.log("Type:", response?.type);
+    if (response?.type === "error") {
+      console.log("Error details:", response.error);
+    }
+
+    if (response?.type === "success") {
+      const { id_token } = response.params;
+      handleGoogleLogin(id_token);
+    }
+  }, [response]);
+
+  const handleGoogleLogin = async (idToken: string) => {
+    setSubmitting(true);
+    try {
+      await loginWithGoogle(idToken);
+    } catch (error) {
+      Alert.alert("Lỗi", error instanceof Error ? error.message : "Đăng nhập Google thất bại");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const validateForm = () => {
     const nextErrors: { userName?: string; password?: string } = {};
@@ -76,6 +114,27 @@ export default function LoginScreen() {
       } else {
         Alert.alert("Đăng nhập thất bại", message);
       }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleGoogleLoginPress = async () => {
+    setSubmitting(true);
+    try {
+      console.log("--- GOOGLE OFFICIAL PROXY START ---");
+      const result = await promptAsync({ useProxy: true });
+
+      console.log("--- Google Auth Result ---");
+      console.log(result);
+
+      if (result?.type === "success") {
+        const { id_token } = result.params;
+        handleGoogleLogin(id_token);
+      }
+    } catch (error) {
+      console.error("Google Login Error:", error);
+      Alert.alert("Lỗi", "Không thể đăng nhập bằng Google");
     } finally {
       setSubmitting(false);
     }
@@ -133,6 +192,21 @@ export default function LoginScreen() {
             </TouchableOpacity>
 
             <CustomButton title="Đăng nhập" onPress={handleLogin} loading={submitting} />
+
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>Hoặc</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            <TouchableOpacity
+              style={styles.googleButton}
+              onPress={handleGoogleLoginPress}
+              disabled={submitting}
+            >
+              <Ionicons name="logo-google" size={20} color="#fff" />
+              <Text style={styles.googleButtonText}>Tiếp tục với Google</Text>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.footerRow}>
@@ -201,6 +275,35 @@ const styles = StyleSheet.create({
   link: {
     color: DiscordColors.textLink,
     fontSize: 15,
+    fontWeight: "600",
+  },
+  dividerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: Spacing.lg,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: DiscordColors.divider,
+  },
+  dividerText: {
+    color: DiscordColors.textMuted,
+    marginHorizontal: Spacing.md,
+    fontSize: 13,
+  },
+  googleButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#df4b3b", // Google Red
+    borderRadius: 12,
+    paddingVertical: 12,
+    gap: Spacing.sm,
+  },
+  googleButtonText: {
+    color: "#fff",
+    fontSize: 16,
     fontWeight: "600",
   },
 });

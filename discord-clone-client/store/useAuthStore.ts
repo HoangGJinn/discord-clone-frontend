@@ -43,6 +43,7 @@ interface AuthState {
   hasInitialized: boolean;
   login: (user: User, token: string) => Promise<void>;
   loginWithCredentials: (payload: LoginRequest) => Promise<void>;
+  loginWithGoogle: (idToken: string) => Promise<void>;
   registerAccount: (payload: RegisterRequest) => Promise<void>;
   forgotPassword: (payload: ForgotPasswordRequest) => Promise<void>;
   resetPassword: (payload: ResetPasswordRequest) => Promise<void>;
@@ -246,7 +247,53 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         hasInitialized: true,
       });
       setAuthToken(null);
-      throw new Error(extractErrorMessage(error, "Đăng nhập thất bại"));
+    }
+  },
+
+  loginWithGoogle: async (idToken: string) => {
+    set({ isLoading: true });
+    try {
+      const loginData = await authService.googleLogin(idToken);
+      await AsyncStorage.setItem(AUTH_TOKEN_KEY, loginData.token);
+
+      let resolvedUser: User;
+      try {
+        const profile = await authService.getMe();
+        resolvedUser = mapProfileToUser(profile, loginData.token);
+      } catch {
+        const claims = parseJwtClaims(loginData.token);
+        const role = resolveRoles([], claims);
+        resolvedUser = {
+          id: String(loginData.userId),
+          username: loginData.userName,
+          email: "",
+          role,
+          isPremium: resolvePremium(claims, role),
+        };
+      }
+
+      await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(resolvedUser));
+      set({
+        user: resolvedUser,
+        token: loginData.token,
+        isAuthenticated: true,
+        isLoading: false,
+        hasInitialized: true,
+      });
+      setAuthToken(loginData.token);
+      void socketService.connect().catch(() => undefined);
+    } catch (error) {
+      await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
+      await AsyncStorage.removeItem(AUTH_USER_KEY);
+      set({
+        user: null,
+        token: null,
+        isAuthenticated: false,
+        isLoading: false,
+        hasInitialized: true,
+      });
+      setAuthToken(null);
+      throw new Error(extractErrorMessage(error, "Đăng nhập Google thất bại"));
     }
   },
 
