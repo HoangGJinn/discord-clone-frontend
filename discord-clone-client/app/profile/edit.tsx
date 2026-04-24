@@ -61,6 +61,22 @@ export default function EditProfileScreen() {
   const bannerEffects = getEffectsByType('BANNER');
   const cardEffects = getEffectsByType('CARD');
 
+  // Combine local constants with database effects
+  const combinedAvatarEffects = useMemo(() => [
+    ...AVATAR_EFFECTS,
+    ...avatarEffects.map(e => ({ id: String(e.id), name: e.name, uri: e.imageUrl }))
+  ], [avatarEffects]);
+
+  const combinedBannerEffects = useMemo(() => [
+    ...BACKGROUND_EFFECTS,
+    ...bannerEffects.map(e => ({ id: String(e.id), name: e.name, uri: e.imageUrl }))
+  ], [bannerEffects]);
+
+  const combinedCardEffects = useMemo(() => [
+    ...NAMEPLATE_EFFECTS,
+    ...cardEffects.map(e => ({ id: String(e.id), name: e.name, uri: e.imageUrl }))
+  ], [cardEffects]);
+
   const [selectedAvatarEffect, setSelectedAvatarEffect] = useState<any>(
     user?.avatarEffectId ? getEffectById(user.avatarEffectId) || AVATAR_EFFECTS.find((e) => String(e.id) === String(user.avatarEffectId)) || null : null
   );
@@ -282,7 +298,7 @@ export default function EditProfileScreen() {
              <Image source={{ uri: PLACEHOLDER_BANNER }} style={styles.bannerImage} contentFit="cover" />
              {isNitro && selectedBgEffect && (
                <Image
-                 source={{ uri: selectedBgEffect.imageUrl || selectedBgEffect.uri }}
+                 source={selectedBgEffect.imageUrl || selectedBgEffect.uri}
                  style={[styles.bannerImage, styles.bannerEffectImage, { position: 'absolute' }]}
                  contentFit="cover"
                />
@@ -298,7 +314,7 @@ export default function EditProfileScreen() {
                  status={previewStatus}
                />
                {isNitro && selectedAvatarEffect && (
-                 <Image source={{ uri: selectedAvatarEffect.imageUrl || selectedAvatarEffect.uri }} style={styles.avatarEffectImage} pointerEvents="none" />
+                 <Image source={selectedAvatarEffect.imageUrl || selectedAvatarEffect.uri} style={styles.avatarEffectImage} pointerEvents="none" />
                )}
                <TouchableOpacity
                  style={styles.editAvatarBtn}
@@ -390,7 +406,7 @@ export default function EditProfileScreen() {
              >
                {selectedAvatarEffect ? (
                  <View style={styles.thumbnailWrapper}>
-                   <Image source={{ uri: selectedAvatarEffect.imageUrl || selectedAvatarEffect.uri }} style={styles.effectThumbnail} contentFit="contain" />
+                   <Image source={selectedAvatarEffect.imageUrl || selectedAvatarEffect.uri} style={styles.effectThumbnail} contentFit="contain" />
                  </View>
                ) : (
                  <Ionicons name="close" size={24} color={DiscordColors.textSecondary} />
@@ -413,7 +429,7 @@ export default function EditProfileScreen() {
              >
                {selectedBgEffect ? (
                  <View style={styles.thumbnailWrapper}>
-                   <Image source={{ uri: selectedBgEffect.imageUrl || selectedBgEffect.uri }} style={styles.effectThumbnail} contentFit="contain" />
+                   <Image source={selectedBgEffect.imageUrl || selectedBgEffect.uri} style={styles.effectThumbnail} contentFit="contain" />
                  </View>
                ) : (
                  <Ionicons name="close" size={24} color={DiscordColors.textSecondary} />
@@ -436,7 +452,7 @@ export default function EditProfileScreen() {
              >
                {selectedCardEffect ? (
                  <View style={styles.thumbnailWrapper}>
-                   <Image source={{ uri: selectedCardEffect.imageUrl || selectedCardEffect.uri }} style={styles.effectThumbnail} contentFit="contain" />
+                   <Image source={selectedCardEffect.imageUrl || selectedCardEffect.uri} style={styles.effectThumbnail} contentFit="contain" />
                  </View>
                ) : (
                  <Ionicons name="close" size={24} color={DiscordColors.textSecondary} />
@@ -454,7 +470,7 @@ export default function EditProfileScreen() {
        <EffectModal
          visible={effectModalType === 'AVATAR'}
          title="Trang Trí Ảnh Đại Diện"
-         data={avatarEffects.length > 0 ? avatarEffects.map(e => ({ id: String(e.id), name: e.name, uri: e.imageUrl })) : AVATAR_EFFECTS}
+         data={combinedAvatarEffects}
          currentSelectedId={String(selectedAvatarEffect?.id || '')}
          onSelect={setSelectedAvatarEffect}
          canSelect={isNitro}
@@ -465,7 +481,7 @@ export default function EditProfileScreen() {
        <EffectModal
          visible={effectModalType === 'BACKGROUND'}
          title="Hiệu Ứng Nền Bìa"
-         data={bannerEffects.length > 0 ? bannerEffects.map(e => ({ id: String(e.id), name: e.name, uri: e.imageUrl })) : BACKGROUND_EFFECTS}
+         data={combinedBannerEffects}
          currentSelectedId={String(selectedBgEffect?.id || '')}
          onSelect={setSelectedBgEffect}
          canSelect={isNitro}
@@ -476,7 +492,7 @@ export default function EditProfileScreen() {
        <EffectModal
          visible={effectModalType === 'CARD'}
          title="Hiệu Ứng Bảng Tên"
-         data={cardEffects.length > 0 ? cardEffects.map(e => ({ id: String(e.id), name: e.name, uri: e.imageUrl })) : NAMEPLATE_EFFECTS}
+         data={combinedCardEffects}
          currentSelectedId={String(selectedCardEffect?.id || '')}
          onSelect={setSelectedCardEffect}
          canSelect={isNitro}
